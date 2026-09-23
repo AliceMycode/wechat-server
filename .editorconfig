@@ -1,0 +1,26 @@
+# EditorConfig — https://editorconfig.org
+# IDEA / VS Code / Eclipse 均原生支持，无需安装插件。
+#
+# 注意：这里刻意不设置 end_of_line。
+# 项目已设 core.autocrlf=true，行尾符由 git 统一处理；
+# 两边同时管会互相覆盖，造成文件反复重排。
+
+root = true
+
+[*]
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.java]
+indent_style = space
+indent_size = 2
+max_line_length = 120
+
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+# Markdown 里行尾两个空格是有意义的（强制换行），不能删
+[*.md]
+trim_trailing_whitespace = false

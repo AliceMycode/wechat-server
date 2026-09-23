@@ -1,0 +1,78 @@
+spring:
+  application:
+    name: wechat-server2.0
+  output:
+    ansi:
+      enabled: always
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/wechat
+    username: root
+    password: 123456
+    druid:
+      initial-size: 5
+      min-idle: 5
+      max-active: 20
+      max-wait: 60000
+#      time-between-eviction-runs-millis: 60000
+#      min-evictable-idle-time-millis: 300000
+#      validation-query: SELECT 1
+#      test-while-idle: true
+#      test-on-borrow: false
+#      test-on-return: false
+#      pool-prepared-statements: true
+#      max-pool-prepared-statement-per-connection-size: 20
+#      filters: stat,wall
+#      filter:
+#        stat:
+#          log-slow-sql: true
+#          slow-sql-millis: 2000
+#      stat-view-servlet:
+#        enabled: true
+#        url-pattern: /druid/*
+#        login-username: admin
+#        login-password: admin
+#      web-stat-filter:
+#        enabled: true
+#        url-pattern: /*
+#        exclusions: "*.js,*.gif,*.jpg,*.png,*.css,*.ico,/druid/*"
+
+
+logging:
+  file:
+    #    path: F:/wechat/wechat-server/logs
+    path: D:/wechat/wechat-server/logs
+  # 日志级别统一在此配置，logback-spring.xml 通过 springProperty 读取，改这里即可生效
+  level:
+    # 全局默认级别
+    root: info
+    # 本项目业务代码
+    com.wechat: info
+    # 第三方组件降噪
+    org.redisson.connection.DNSMonitor: error
+    com.zaxxer.hikari: info
+    io.lettuce.core: info
+    org.springframework.data.redis: info
+
+
+mybatis-plus:
+  # Mapper XML 位置（代码生成器输出到 resources/mapper 下）
+  mapper-locations: classpath*:/mapper/**/*.xml
+  # 实体类包名，XML 中可直接写类名
+  type-aliases-package: com.wechat.www.entity
+  global-config:
+    db-config:
+      # 主键策略：跟随数据库自增
+      id-type: auto
+
+
+server:
+  port: 5050
+  servlet:
+    context-path: /wechat
+
+
+
+
+

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<configuration scan="true" scanPeriod="10 minutes">
+
+	<!-- 屏蔽 logback 自身初始化状态日志 -->
+	<statusListener class="ch.qos.logback.core.status.NopStatusListener"/>
+
+	<!-- 日志目录从 application.yml 的 logging.file.path 读取 -->
+	<springProperty scope="context" name="LOG_PATH" source="logging.file.path" defaultValue="logs"/>
+
+	<!-- 日志级别全部从 application.yml 的 logging.level.* 读取，改 yml 即可生效，无需动本文件 -->
+	<springProperty scope="context" name="ROOT_LOG_LEVEL" source="logging.level.root" defaultValue="INFO"/>
+	<springProperty scope="context" name="APP_LOG_LEVEL" source="logging.level.com.wechat" defaultValue="INFO"/>
+	<springProperty scope="context" name="REDISSON_DNS_LOG_LEVEL" source="logging.level.org.redisson.connection.DNSMonitor" defaultValue="ERROR"/>
+	<springProperty scope="context" name="HIKARI_LOG_LEVEL" source="logging.level.com.zaxxer.hikari" defaultValue="INFO"/>
+	<springProperty scope="context" name="LETTUCE_LOG_LEVEL" source="logging.level.io.lettuce.core" defaultValue="INFO"/>
+	<springProperty scope="context" name="SPRING_REDIS_LOG_LEVEL" source="logging.level.org.springframework.data.redis" defaultValue="INFO"/>
+
+	<!-- Spring Boot 默认颜色/异常转换器 -->
+	<conversionRule conversionWord="clr" class="org.springframework.boot.logging.logback.ColorConverter"/>
+	<conversionRule conversionWord="wex" class="org.springframework.boot.logging.logback.WhitespaceThrowableProxyConverter"/>
+	<conversionRule conversionWord="wEx" class="org.springframework.boot.logging.logback.ExtendedWhitespaceThrowableProxyConverter"/>
+
+	<!-- 控制台：与 Spring Boot 默认启动日志一致的彩色高亮格式 -->
+	<appender name="console" class="ch.qos.logback.core.ConsoleAppender">
+		<encoder>
+			<pattern>%clr(%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}){faint} %clr(%5p) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n%wEx</pattern>
+		</encoder>
+	</appender>
+
+	<property name="LOG_FILE_NAME" value="wechat-server.log"/>
+
+	<!-- 文件：纯文本（无颜色），保留方法/行号便于排查 -->
+	<appender name="file" class="ch.qos.logback.core.rolling.RollingFileAppender">
+		<file>${LOG_PATH}/${LOG_FILE_NAME}</file>
+		<rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+			<FileNamePattern>${LOG_PATH}/${LOG_FILE_NAME}.%d{yyyyMMdd}.%i</FileNamePattern>
+			<MaxFileSize>20MB</MaxFileSize>
+			<maxHistory>30</maxHistory>
+		</rollingPolicy>
+		<encoder>
+			<charset>utf-8</charset>
+			<pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%p][%c][%M][%L]-> %m%n%wEx</pattern>
+		</encoder>
+	</appender>
+
+	<logger name="com.wechat" level="${APP_LOG_LEVEL}"/>
+	<logger name="org.redisson.connection.DNSMonitor" level="${REDISSON_DNS_LOG_LEVEL}"/>
+	<logger name="com.zaxxer.hikari" level="${HIKARI_LOG_LEVEL}"/>
+	<logger name="io.lettuce.core" level="${LETTUCE_LOG_LEVEL}"/>
+	<logger name="org.springframework.data.redis" level="${SPRING_REDIS_LOG_LEVEL}"/>
+
+	<root level="${ROOT_LOG_LEVEL}">
+		<appender-ref ref="console"/>
+		<appender-ref ref="file"/>
+	</root>
+
+</configuration>
