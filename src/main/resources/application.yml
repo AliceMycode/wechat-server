@@ -1,78 +1,120 @@
 spring:
   application:
     name: wechat-server2.0
+
+  # 控制台彩色日志输出（一直开启，可选）
   output:
     ansi:
       enabled: always
+
+  # ==================== 数据源：Druid 连接池 ====================
   datasource:
+    # 指定连接池实现为 Druid（依赖里装了 druid-spring-boot-3-starter）
     type: com.alibaba.druid.pool.DruidDataSource
+    # MySQL 8+ 的 JDBC 驱动类
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/wechat
+    # 连接地址：库名 wechat
+    # serverTimezone=GMT%2B8     固定东八区时区，避免日期字段差 8 小时
+    # useUnicode&characterEncoding=utf8   保证中文不乱码
+    # autoReconnect=true         连接断开时自动重连
+    # allowMultiQueries=true     允许一条语句执行多条 SQL
+    # useSSL=false               本地开发关闭 SSL 加密
+    url: jdbc:mysql://localhost:3306/wechat?serverTimezone=GMT%2B8&useUnicode=true&characterEncoding=utf8&autoReconnect=true&allowMultiQueries=true&useSSL=false
     username: root
     password: 123456
+    # Druid 连接池参数（druid-spring-boot-3-starter 的专属命名空间）
     druid:
-      initial-size: 5
-      min-idle: 5
-      max-active: 20
-      max-wait: 60000
-#      time-between-eviction-runs-millis: 60000
-#      min-evictable-idle-time-millis: 300000
-#      validation-query: SELECT 1
-#      test-while-idle: true
-#      test-on-borrow: false
-#      test-on-return: false
-#      pool-prepared-statements: true
-#      max-pool-prepared-statement-per-connection-size: 20
-#      filters: stat,wall
-#      filter:
-#        stat:
-#          log-slow-sql: true
-#          slow-sql-millis: 2000
-#      stat-view-servlet:
-#        enabled: true
-#        url-pattern: /druid/*
-#        login-username: admin
-#        login-password: admin
-#      web-stat-filter:
-#        enabled: true
-#        url-pattern: /*
-#        exclusions: "*.js,*.gif,*.jpg,*.png,*.css,*.ico,/druid/*"
+      initial-size: 5            # 启动时预先建立 5 个连接（数据库连不上 → 启动直接报错，方便验证配置）
+      min-idle: 5                # 池中最少保留 5 个空闲连接
+      max-active: 20             # 池中最大连接数
+      max-wait: 60000            # 获取连接的最大等待时间（毫秒），超时抛异常
+      # ------- 以下为 Druid 可选高级配置，先注释留着，需要时再打开 -------
+      # 每 60 秒检测一次需要回收的空闲连接
+      # time-between-eviction-runs-millis: 60000
+      # 空闲连接最少存活 5 分钟才可能被回收
+      # min-evictable-idle-time-millis: 300000
+      # 检测连接是否有效的 SQL
+      # validation-query: SELECT 1
+      # 空闲时检测（推荐开）
+      # test-while-idle: true
+      # 借出时不检测（性能好）
+      # test-on-borrow: false
+      # 归还时不检测
+      # test-on-return: false
+      # 开启预编译语句缓存
+      # pool-prepared-statements: true
+      # 单连接预编译语句缓存上限
+      # max-pool-prepared-statement-per-connection-size: 20
+      # 开启监控统计 + SQL 防火墙
+      # filters: stat,wall
+      # 慢 SQL 监控
+      # filter:
+      #   stat:
+      #     log-slow-sql: true
+      #     slow-sql-millis: 2000
+      # Druid 监控台（浏览器访问 /druid 可看连接池和 SQL 统计）
+      # stat-view-servlet:
+      #   enabled: true
+      #   url-pattern: /druid/*
+      #   login-username: admin
+      #   login-password: admin
+      # 监控 Web 请求的过滤器
+      # web-stat-filter:
+      #   enabled: true
+      #   url-pattern: /*
+      #   exclusions: "*.js,*.gif,*.jpg,*.png,*.css,*.ico,/druid/*"
 
+  # ==================== Redis 配置 ====================
+  # 注意：Spring Boot 3 的 Redis 前缀是 spring.data.redis（Boot 2 才是 spring.redis），别写错
+  data:
+    redis:
+      host: 127.0.0.1           # Redis 服务器地址（本机）
+      port: 6379                # Redis 端口（你已确认在运行）
+      database: 0               # 使用第 0 个库（Redis 默认 16 个库，0-15）
+      timeout: 5000             # 连接超时时间（毫秒）
 
-logging:
-  file:
-    #    path: F:/wechat/wechat-server/logs
-    path: D:/wechat/wechat-server/logs
-  # 日志级别统一在此配置，logback-spring.xml 通过 springProperty 读取，改这里即可生效
-  level:
-    # 全局默认级别
-    root: info
-    # 本项目业务代码
-    com.wechat: info
-    # 第三方组件降噪
-    org.redisson.connection.DNSMonitor: error
-    com.zaxxer.hikari: info
-    io.lettuce.core: info
-    org.springframework.data.redis: info
+  # ==================== 文件上传大小限制 ====================
+  servlet:
+    multipart:
+      max-file-size: 15MB       # 单个文件最大 15MB（聊天传图/传视频的上限，和原项目一致）
+      max-request-size: 15MB    # 一次请求（可能多个文件）总大小上限
 
+# ==================== 自定义业务配置 ====================
+# 这三个不是 Spring 内置项，是给"我们自己写的代码"读的（ AppConfig 类会读取它们）
+ws:
+  port: 5051                    # Netty WebSocket 端口，前端 ws://127.0.0.1:5051/ws 连的就是它
+project:
+  folder: D:/wechat/            # 文件存储根目录：头像、聊天图片/视频、临时文件都放这里（记得先建 D:\wechat）
+admin:
+  emails: test@qq.com           # 管理员邮箱，后台管理功能用它判断"谁是管理员"
 
+# ==================== MyBatis-Plus 配置 ====================
 mybatis-plus:
-  # Mapper XML 位置（代码生成器输出到 resources/mapper 下）
+  # Mapper XML 文件位置（写复杂联查 SQL 时用，XML 放 src/main/resources/mapper 下）
   mapper-locations: classpath*:/mapper/**/*.xml
-  # 实体类包名，XML 中可直接写类名
+  # 实体类包名，XML 里可以直接写类名，不用写全限定名
   type-aliases-package: com.wechat.www.entity
   global-config:
     db-config:
-      # 主键策略：跟随数据库自增
+      # 主键策略：跟随数据库自增（对应建表语句里的 AUTO_INCREMENT）
       id-type: auto
 
+# ==================== 日志 ====================
+logging:
+  # 日志文件输出目录（目录不存在时 Spring Boot 会自动创建）
+  file:
+    path: D:/wechat/logs
+  # 日志级别统一在这里配，logback-spring.xml 通过 springProperty 读取，改这里即可生效
+  level:
+    root: info                        # 全局默认级别
+    com.wechat: info                  # 本项目业务代码
+    org.redisson.connection.DNSMonitor: error   # 以下均为第三方组件降噪
+    io.lettuce.core: info
+    org.springframework.data.redis: info
 
+# ==================== HTTP 服务 ====================
 server:
-  port: 5050
+  port: 5050                         # HTTP 端口
   servlet:
-    context-path: /wechat
-
-
-
-
+    context-path: /api
 

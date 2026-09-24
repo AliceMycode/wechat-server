@@ -1,4 +1,4 @@
-package com.wechat.www.common;
+package com.wechat.www.exception;
 
 import lombok.Getter;
 
@@ -15,14 +15,5 @@ public class BusinessException extends RuntimeException {
   @Serial
   private static final long serialVersionUID = 1L;
 
-  private final int code;
 
-  public BusinessException(String msg) {
-    this(R.CODE_FAIL, msg);
-  }
-
-  public BusinessException(int code, String msg) {
-    super(msg);
-    this.code = code;
-  }
 }

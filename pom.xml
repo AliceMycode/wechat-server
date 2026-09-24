@@ -146,6 +146,15 @@
 			<version>${captcha.version}</version>
 		</dependency>
 
+		<!-- 兼容 JDK 17：easy-captcha 1.6.2 靠 JavaScript 引擎计算算术题答案，
+     而 JDK 15+ 已移除内置 Nashorn，这里手动补上开源版 Nashorn -->
+		<dependency>
+			<groupId>org.openjdk.nashorn</groupId>
+			<artifactId>nashorn-core</artifactId>
+			<version>15.4</version>
+		</dependency>
+
+
 		<!--netty-->
 		<dependency>
 			<groupId>io.netty</groupId>
