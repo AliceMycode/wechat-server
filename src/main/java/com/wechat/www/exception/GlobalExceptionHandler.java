@@ -1,6 +1,6 @@
 package com.wechat.www.exception;
 
-import com.wechat.www.controller.ABaseController;
+import com.wechat.www.controller.BaseController;
 import com.wechat.www.enums.ResponseCodeEnum;
 import com.wechat.www.vo.ResponseVO;
 import jakarta.servlet.http.HttpServletRequest;
@@ -21,7 +21,7 @@ import org.springframework.web.servlet.NoHandlerFoundException;
  */
 @Slf4j
 @RestControllerAdvice
-public class GlobalExceptionHandler extends ABaseController {
+public class GlobalExceptionHandler extends BaseController {
 
   /** 1. 404：请求地址不存在 */
   @ExceptionHandler(NoHandlerFoundException.class)

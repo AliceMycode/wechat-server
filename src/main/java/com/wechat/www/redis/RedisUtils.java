@@ -7,6 +7,7 @@ import org.springframework.util.CollectionUtils;
 
 
 import java.util.Collection;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -59,4 +60,60 @@ public class RedisUtils {
       return false;
     }
   }
+  /** 给已存在的 key 重新设置过期时间（秒），List 每次操作后续约用 */
+  public boolean expire(String key, long time) {
+    try {
+      if (time > 0) {
+        redisTemplate.expire(key, time, TimeUnit.SECONDS);
+      }
+      return true;
+    } catch (Exception e) {
+      e.printStackTrace();
+      return false;
+    }
+  }
+
+  /** 取出整个 List 队列（0 到 -1 表示全部），登录时一次性加载联系人用 */
+  public List<Object> getQueueList(String key) {
+    return redisTemplate.opsForList().range(key, 0, -1);
+  }
+
+  /** 从左边往 List 压入一个元素，并设置过期时间 */
+  public boolean lpush(String key, Object value, long time) {
+    try {
+      redisTemplate.opsForList().leftPush(key, value);
+      if (time > 0) {
+        expire(key, time);
+      }
+      return true;
+    } catch (Exception e) {
+      e.printStackTrace();
+      return false;
+    }
+  }
+
+  /** 从 List 中删除指定元素（count=1 表示只删第一个匹配的） */
+  public long remove(String key, Object value) {
+    try {
+      return redisTemplate.opsForList().remove(key, 1, value);
+    } catch (Exception e) {
+      e.printStackTrace();
+      return 0;
+    }
+  }
+
+  /** 从左边批量压入多个元素，并设置过期时间 */
+  public boolean lpushAll(String key, List<Object> values, long time) {
+    try {
+      redisTemplate.opsForList().leftPushAll(key, values);
+      if (time > 0) {
+        expire(key, time);
+      }
+      return true;
+    } catch (Exception e) {
+      e.printStackTrace();
+      return false;
+    }
+  }
+
 }

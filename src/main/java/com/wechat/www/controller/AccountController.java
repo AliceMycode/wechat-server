@@ -1,13 +1,17 @@
 package com.wechat.www.controller;
 
 import com.wechat.www.constant.RedisKeyConstants;
+import com.wechat.www.exception.BusinessException;
 import com.wechat.www.redis.RedisUtils;
+import com.wechat.www.service.UserInfoService;
+import com.wechat.www.utils.StringTools;
 import com.wechat.www.vo.ResponseVO;
+import com.wechat.www.vo.UserInfoVO;
 import com.wf.captcha.ArithmeticCaptcha;   // easy-captcha 库的算术验证码类（pom 里已引入）
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 
@@ -22,10 +26,14 @@ import java.util.UUID;
  */
 @RestController            // 声明这是接口类，返回值自动转 JSON
 @RequestMapping("/account") // 类下所有接口都以 /account 开头
-public class AccountController extends ABaseController {
+public class AccountController extends BaseController {
 
   @Autowired
   private RedisUtils redisUtils;   // 注入 Redis 工具类
+
+
+  @Autowired
+  private UserInfoService userInfoService;
 
   /**
    * 生成图片验证码
@@ -33,7 +41,7 @@ public class AccountController extends ABaseController {
    * 前端显示图片让用户输答案；登录/注册时前端把 key+答案传回，后端比对是否一致
    */
   @PostMapping("/checkCode")
-  public ResponseVO checkCode() {
+  public ResponseVO<Map<String, String>> checkCode() {
     // 1. 生成一张 100x42 的算术验证码图片（如 "3+5=?"）
     ArithmeticCaptcha captcha = new ArithmeticCaptcha(100, 42);
     String code = captcha.text();            // 取出正确答案（如 "8"）
@@ -53,5 +61,50 @@ public class AccountController extends ABaseController {
 
     // 5. 包成统一响应体返回
     return getSuccessResponseVO(result);
+  }
+
+  /**
+   * 注册：/api/account/register
+   * @RequestParam 接收表单字段（前端 POST FormData）
+   */
+  @PostMapping("/register")
+  public ResponseVO<Void> register(@RequestParam String email,
+                             @RequestParam String nickName,
+                             @RequestParam String password,
+                             @RequestParam String checkCodeKey,
+                             @RequestParam String checkCode) {
+    checkCheckCode(checkCodeKey, checkCode);   // 先校验验证码
+    userInfoService.register(email, nickName, password);
+    return getSuccessResponseVO(null);          // 注册成功，data 为空
+  }
+
+  /**
+   * 登录：/api/account/login
+   */
+  @PostMapping("/login")
+  public ResponseVO<UserInfoVO> login(@RequestParam String email,
+                          @RequestParam String password,
+                          @RequestParam String checkCodeKey,
+                          @RequestParam String checkCode) {
+    checkCheckCode(checkCodeKey, checkCode);
+    UserInfoVO userInfoVO = userInfoService.login(email, password);
+    return getSuccessResponseVO(userInfoVO);
+  }
+
+  /**
+   * 校验图形验证码：从 Redis 取答案比对，验证后立即删除（一次性使用）
+   */
+  private void checkCheckCode(String checkCodeKey, String checkCode) {
+    if (StringTools.isEmpty(checkCodeKey) || StringTools.isEmpty(checkCode)) {
+      throw new BusinessException("验证码不能为空");
+    }
+    Object savedCode = redisUtils.get(RedisKeyConstants.REDIS_KEY_CHECK_CODE + checkCodeKey);
+    if (savedCode == null) {
+      throw new BusinessException("验证码已过期，请刷新");
+    }
+    if (!savedCode.toString().equals(checkCode)) {
+      throw new BusinessException("验证码错误");
+    }
+    redisUtils.delete(RedisKeyConstants.REDIS_KEY_CHECK_CODE + checkCodeKey);
   }
 }
