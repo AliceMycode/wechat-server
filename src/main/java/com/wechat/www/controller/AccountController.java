@@ -6,6 +6,7 @@ import com.wechat.www.vo.ResponseVO;
 import com.wf.captcha.ArithmeticCaptcha;   // easy-captcha 库的算术验证码类（pom 里已引入）
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -31,7 +32,7 @@ public class AccountController extends ABaseController {
    * 流程：生成算术题图片 → 答案存 Redis（10 分钟过期）→ 把图片+key 返回前端
    * 前端显示图片让用户输答案；登录/注册时前端把 key+答案传回，后端比对是否一致
    */
-  @GetMapping("/checkCode")
+  @PostMapping("/checkCode")
   public ResponseVO checkCode() {
     // 1. 生成一张 100x42 的算术验证码图片（如 "3+5=?"）
     ArithmeticCaptcha captcha = new ArithmeticCaptcha(100, 42);
