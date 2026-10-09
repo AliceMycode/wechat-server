@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.wechat.www.constant.CommonConstants;
 import lombok.Data;
 
+import java.io.Serial;
 import java.io.Serializable;
 
 /**
@@ -14,6 +15,7 @@ import java.io.Serializable;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class SysSettingDto implements Serializable {
 
+  @Serial
   private static final long serialVersionUID = 1L;
 
   private Integer maxGroupCount = 5;          // 每人最多建群数

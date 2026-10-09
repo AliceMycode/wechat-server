@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
  * 应用自定义配置：读取 application.yml 里的自定义项
  * （ws.port / project.folder / admin.emails）
  */
-@Component("appConfig")
+@Component
 public class AppConfig {
   @Getter
   @Value("${ws.port:0}")

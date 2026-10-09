@@ -16,7 +16,7 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 /**
  * 全局异常处理：拦截所有 Controller 抛出的异常，统一转成 ResponseVO
  * 继承 ABaseController：复用父类 STATUC_ERROR 常量
- *
+ * <p>
  * 每种异常单独一个 @ExceptionHandler 方法，Spring 按异常类型自动匹配最接近的方法
  */
 @Slf4j

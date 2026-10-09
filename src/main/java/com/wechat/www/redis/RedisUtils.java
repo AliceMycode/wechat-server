@@ -1,6 +1,6 @@
 package com.wechat.www.redis;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import jakarta.annotation.Resource;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
@@ -15,13 +15,14 @@ import java.util.concurrent.TimeUnit;
  * 本项目大量场景依赖它：验证码、登录 token、用户在线状态、WS 连接信息
  * 现在先写够验证码用的 4 个方法，后面用到再加
  */
-@Component("redisUtils")
+@Component
 public class RedisUtils {
 
-  @Autowired
+  @Resource
   private RedisTemplate<String, Object> redisTemplate;   // 注入我们自己定义的 RedisTemplate（见 RedisConfig）
 
   /** 删除一个或多个 key（可变参数：传几个删几个），注册/登录用完验证码后要删掉它 */
+  @SuppressWarnings("unchecked")
   public void delete(String... key) {
     if (key != null && key.length > 0) {
       if (key.length == 1) {

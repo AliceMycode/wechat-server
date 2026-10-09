@@ -25,33 +25,4 @@ public class BaseController {
     responseVO.setData(t);
     return responseVO;
   }
-
-  /**
-   * 业务错误响应：把 BusinessException 转成统一格式
-   * code 为 null 时默认按 600（参数错误）
-   */
-  protected <T> ResponseVO<T> getBusinessErrorResponseVO(BusinessException e, T t) {
-    ResponseVO<T> vo = new ResponseVO<>();
-    vo.setStatus(STATUC_ERROR);
-    if (e.getCode() == null) {
-      vo.setCode(ResponseCodeEnum.CODE_600.getCode());
-    } else {
-      vo.setCode(e.getCode());
-    }
-    vo.setInfo(e.getMessage());
-    vo.setData(t);
-    return vo;
-  }
-
-  /**
-   * 服务器错误响应：兜底的 500
-   */
-  protected <T> ResponseVO<T> getServerErrorResponseVO(T t) {
-    ResponseVO<T> vo = new ResponseVO<>();
-    vo.setStatus(STATUC_ERROR);
-    vo.setCode(ResponseCodeEnum.CODE_500.getCode());
-    vo.setInfo(ResponseCodeEnum.CODE_500.getMsg());
-    vo.setData(t);
-    return vo;
-  }
 }

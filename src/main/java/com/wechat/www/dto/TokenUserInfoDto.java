@@ -3,6 +3,7 @@ package com.wechat.www.dto;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 
+import java.io.Serial;
 import java.io.Serializable;
 
 /**
@@ -14,6 +15,7 @@ import java.io.Serializable;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class TokenUserInfoDto implements Serializable {
 
+  @Serial
   private static final long serialVersionUID = 1L;
 
   private String token;     // 登录凭证

@@ -84,10 +84,21 @@ public class UserInfo implements Serializable {
   /**
    * 在线状态：注意这不是数据库字段，也不存值，而是实时计算出来的
    * 规则：最后登录时间晚于最后离开时间 → 在线(1)，否则离线(0)
-   *
+   * <p>
    * 我们不声明 onlineType 字段，只手写这个 getter：
    * - Jackson 看到 getOnlineType() 会自动把它序列化进返回 JSON
    * - MyBatis-Plus 没有对应字段，不会去找数据库列
+   * 场景一：用户当前在线
+   *   lastOffTime   = 1000   （上次离开时间）
+   *   lastLoginTime = 2000   （这次登录时间，更晚）
+   * <p>
+   *   2000 > 1000 → true → 在线(1)
+   * 场景二：用户当前离线
+   *   lastOffTime   = 1000   （上次离开时间）
+   *   lastLoginTime = 1500   （这次登录时间，更晚）
+   * <p>
+   *   1500 > 1000 → true → 在线(1)
+   *   1500 <= 1000 → false → 离线(0)
    */
   public Integer getOnlineType() {
     if (lastLoginTime != null && lastLoginTime.getTime() > lastOffTime) {
