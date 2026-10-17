@@ -8,7 +8,7 @@ import com.wechat.www.utils.StringTools;
 import com.wechat.www.vo.ResponseVO;
 import com.wechat.www.vo.UserInfoVO;
 import com.wf.captcha.ArithmeticCaptcha;   // easy-captcha 库的算术验证码类（pom 里已引入）
-import org.springframework.beans.factory.annotation.Autowired;
+import jakarta.annotation.Resource;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -28,11 +28,11 @@ import java.util.UUID;
 @RequestMapping("/account") // 类下所有接口都以 /account 开头
 public class AccountController extends BaseController {
 
-  @Autowired
+  @Resource
   private RedisUtils redisUtils;   // 注入 Redis 工具类
 
 
-  @Autowired
+  @Resource
   private UserInfoService userInfoService;
 
   /**

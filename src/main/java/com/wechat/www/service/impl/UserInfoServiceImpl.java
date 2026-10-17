@@ -149,12 +149,8 @@ public class UserInfoServiceImpl implements UserInfoService {
     dto.setNickName(userInfo.getNickName());
 
     String adminEmails = appConfig.getAdminEmails();
-    if (!StringTools.isEmpty(adminEmails)
-      && List.of(adminEmails.split(",")).contains(userInfo.getEmail())) {
-      dto.setAdmin(true);
-    } else {
-      dto.setAdmin(false);
-    }
+    dto.setAdmin(!StringTools.isEmpty(adminEmails)
+      && List.of(adminEmails.split(",")).contains(userInfo.getEmail()));
     return dto;
   }
 }
