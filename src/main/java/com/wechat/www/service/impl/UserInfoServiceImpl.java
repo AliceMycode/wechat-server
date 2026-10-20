@@ -12,6 +12,7 @@ import com.wechat.www.exception.BusinessException;
 import com.wechat.www.mapper.UserContactMapper;
 import com.wechat.www.mapper.UserInfoMapper;
 import com.wechat.www.redis.RedisComponet;
+import com.wechat.www.service.UserContactService;
 import com.wechat.www.service.UserInfoService;
 import com.wechat.www.utils.CopyTools;
 import com.wechat.www.utils.StringTools;
@@ -45,6 +46,10 @@ public class UserInfoServiceImpl implements UserInfoService {
   @Resource
   private AppConfig appConfig;
 
+  @Resource
+  private UserContactService userContactService;
+
+
   /**
    * 注册
    * @Transactional：插入用户 + 后面加机器人好友要在同一事务，
@@ -77,8 +82,8 @@ public class UserInfoServiceImpl implements UserInfoService {
     // 4. 插入
     userInfoMapper.insert(userInfo);
 
-    // 5. 创建机器人好友（依赖聊天域，暂时留空，聊天域里程碑补这里）
-    // TODO 聊天域建好后：userContactService.addContact4Robot(userId);
+    // 5. 给新用户加机器人好友 + 初始化会话 + 欢迎消息（在本方法的事务里一起提交）
+    userContactService.addContact4Robot(userId);
   }
 
   /**
@@ -153,4 +158,15 @@ public class UserInfoServiceImpl implements UserInfoService {
       && List.of(adminEmails.split(",")).contains(userInfo.getEmail()));
     return dto;
   }
+
+
+  @Override
+  public UserInfo getUserInfoByUserId(String userId) {
+    UserInfo userInfo = userInfoMapper.selectById(userId);
+    if (userInfo == null) {
+      throw new BusinessException("用户不存在");
+    }
+    return userInfo;
+  }
+
 }

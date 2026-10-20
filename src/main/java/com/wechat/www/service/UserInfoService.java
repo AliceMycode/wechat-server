@@ -1,5 +1,6 @@
 package com.wechat.www.service;
 
+import com.wechat.www.entity.UserInfo;
 import com.wechat.www.vo.UserInfoVO;
 
 /**
@@ -13,4 +14,8 @@ public interface UserInfoService {
 
   /** 登录，返回带 token 的用户信息 */
   UserInfoVO login(String email, String password);
+
+  /** 按用户ID查用户信息 */
+  UserInfo getUserInfoByUserId(String userId);
+
 }

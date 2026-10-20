@@ -151,14 +151,22 @@ public class StringTools {
   }
 
   /**
-   * 清理 HTML 标签：把 < 转义，换行转成 <br>
-   * 防止用户输入的内容被当成 HTML 执行（XSS 防护）
+   * 清理 HTML：把 &、<、>、引号 全部转义成 HTML 实体，
+   * 再把换行转成 <br>（在转义之后插入，保证 <br> 本身不被转义）
+   * 作用：用户/后台配置的内容原样显示为纯文本，不会被浏览器当 HTML 执行（XSS 防护）
+   * 注意：必须先转义 &，否则后面插入的 &lt; 等实体会被二次转义
+   * \n		Unix / Linux / macOS(现代) / 网络标准
+   * \r\n	Windows / DOS / 其他老旧系统
    */
   public static String cleanHtmlTag(String content) {
     if (isEmpty(content)) {
       return content;
     }
+    content = content.replace("&", "&amp;");
     content = content.replace("<", "&lt;");
+    content = content.replace(">", "&gt;");
+    content = content.replace("\"", "&quot;");
+    content = content.replace("'", "&#39;");
     content = content.replace("\r\n", "<br>");
     content = content.replace("\n", "<br>");
     return content;

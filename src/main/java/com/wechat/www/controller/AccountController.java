@@ -1,7 +1,9 @@
 package com.wechat.www.controller;
 
 import com.wechat.www.constant.RedisKeyConstants;
+import com.wechat.www.dto.SysSettingDto;
 import com.wechat.www.exception.BusinessException;
+import com.wechat.www.redis.RedisComponet;
 import com.wechat.www.redis.RedisUtils;
 import com.wechat.www.service.UserInfoService;
 import com.wechat.www.utils.StringTools;
@@ -31,9 +33,11 @@ public class AccountController extends BaseController {
   @Resource
   private RedisUtils redisUtils;   // 注入 Redis 工具类
 
-
   @Resource
   private UserInfoService userInfoService;
+
+  @Resource
+  private RedisComponet redisComponet;
 
   /**
    * 生成图片验证码
@@ -107,4 +111,15 @@ public class AccountController extends BaseController {
     }
     redisUtils.delete(RedisKeyConstants.REDIS_KEY_CHECK_CODE + checkCodeKey);
   }
+
+  /**
+   * 获取系统设置（前端进主界面时调，拿文件大小限制、机器人信息等）
+   * 直接返回 SysSettingDto（Redis 没配就用默认值）
+   */
+  @PostMapping("/getSysSetting")
+  public ResponseVO<SysSettingDto> getSysSetting() {
+    return getSuccessResponseVO(redisComponet.getSysSetting());
+  }
+
+
 }
