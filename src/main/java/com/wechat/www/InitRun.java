@@ -1,5 +1,6 @@
 package com.wechat.www;
 
+import com.wechat.www.netty.NettyWebSocketStarter;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -15,14 +16,14 @@ import java.sql.SQLException;
  * 实现 ApplicationRunner：Spring Boot 启动完成后自动执行 run()
  */
 @Slf4j
-@Component("initRun")
+@Component
 public class InitRun implements ApplicationRunner {
 
   @Resource
   private DataSource dataSource;
 
   @Resource
-  // private NettyWebSocketStarter nettyWebSocketStarter;
+  private NettyWebSocketStarter nettyWebSocketStarter;
 
   @Override
   public void run(ApplicationArguments args) {
@@ -30,8 +31,8 @@ public class InitRun implements ApplicationRunner {
       // 1. 先拿一下数据库连接，连不上说明配置错了
       dataSource.getConnection();
       // 2. 启动 Netty WebSocket 服务（新开线程，不阻塞主线程）
-      // new Thread(nettyWebSocketStarter).start();
-      log.error("服务启动成功，可以开始愉快的开发了");
+      new Thread(nettyWebSocketStarter).start();
+      log.info("服务启动成功，可以开始愉快的开发了");
     } catch (SQLException e) {
       log.error("数据库配置错误，请检查数据库配置");
     } catch (Exception e) {
