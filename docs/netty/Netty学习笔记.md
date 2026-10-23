@@ -558,3 +558,124 @@ Channel B: [..., handlerWebSocket（同一个实例）]
 │ HandlerWebSocket │  校验token、收心跳、推消息
 └──────────────────┘
 ```
+
+---
+
+## 16. HandlerHeartBeat 能不能也做成 Bean + @Sharable
+
+**可以，但没必要。**
+
+判断标准：这个 Handler 有没有内部状态？
+
+| Handler | 有状态吗 | 怎么做 |
+|---|---|---|
+| HttpServerCodec | **有**（记录正在解析哪个 HTTP 请求） | 必须每次 new |
+| HttpObjectAggregator | **有**（攒着碎片等拼完） | 必须每次 new |
+| HandlerHeartBeat | **没有**（只判断 evt 类型，啥也不存） | new 或 Bean 都行 |
+| HandlerWebSocket | **没有**（只注入了无状态的工具类） | 做成了 Bean + @Sharable |
+
+HandlerHeartBeat 现在每次 new 一个新实例，虽然浪费一点点，但因为它无状态，完全没问题。
+
+---
+
+## 17. 读超时时，两个 userEventTriggered 都会触发吗
+
+**都会触发，但 HandlerWebSocket 会忽略它。**
+
+事件从 IdleStateHandler 发出后，顺着 Pipeline 往后传，每个 Handler 的 userEventTriggered 都会被调：
+
+```
+IdleStateEvent（超时事件）
+  ↓
+HandlerHeartBeat.userEventTriggered
+  → evt instanceof IdleStateEvent? 是 → ctx.close()
+  ↓ 继续往后传
+WebSocketServerProtocolHandler.userEventTriggered
+  → 不认识这个事件，不管
+  ↓ 继续往后传
+HandlerWebSocket.userEventTriggered
+  → evt instanceof HandshakeComplete? 不是，是 IdleStateEvent
+  → 直接忽略
+```
+
+就像广播：每个 Handler 都听到了，但只处理自己关心的类型。
+
+---
+
+## 18. 两个用户互相发消息，前端怎么发？经过 Pipeline 吗
+
+**A 发消息走的是 HTTP（5050 端口），不是 WebSocket。服务器推给 B 才走 WebSocket。**
+
+完整流程：
+
+```
+A 要给 B 发消息：
+
+① A 的前端 → HTTP POST http://localhost:5050/api/chat/sendMessage
+   （走 Spring MVC，不是 Netty）
+   ↓
+   服务器保存消息到 chat_message 表
+   ↓
+② 服务器找到 B 的 Channel（在 USER_CONTEXT_MAP 里）
+   channel.writeAndFlush(new TextWebSocketFrame(JSON))
+   ↓
+   这个 WebSocket 帧从 B 的 Pipeline 尾部开始，反向穿过：
+   HandlerWebSocket ← WebSocketServerProtocolHandler ← ... ← 字节发出去
+   ↓
+③ B 的前端 onmessage 收到 JSON → 渲染聊天窗口
+```
+
+关键点：
+- **A 发消息走 HTTP**：就像普通的 REST 请求
+- **B 收消息走 WebSocket**：服务器主动推
+- **A 的 Channel 不参与发送过程**：A 的消息是通过 HTTP 到服务器的
+
+| | 入站消息（客户端→服务器） | 出站消息（服务器→客户端） |
+|---|---|---|
+| 方向 | Pipeline 从前往后 | Pipeline 从后往前 |
+| 谁发的 | 客户端 | 服务器 |
+
+---
+
+## 19. WebSocket 握手不成功？checkStartsWith 才是关键
+
+### 现象
+
+TCP 连上了，HTTP 请求路径 `/ws?token=xxx` 正确，请求头也标准（Upgrade: websocket），但就是不触发 `HandshakeComplete`，前端一直报"连接失败了准备重连"。
+
+### 原因
+
+简化版构造函数：
+```java
+new WebSocketServerProtocolHandler("/ws")  // checkStartsWith 默认 false
+```
+
+Netty 匹配路径时用的是 `req.uri()`，它返回**完整 URI 包括查询参数**：
+
+```
+req.uri() = "/ws?token=xxx"
+```
+
+- `checkStartsWith=false`（默认）：精确匹配 `"/ws?token=xxx".equals("/ws")` → **false**，握手不升级
+- `checkStartsWith=true`：前缀匹配 `"/ws?token=xxx".startsWith("/ws")` → **true**，握手成功
+
+### 正确写法（照源项目）
+
+```java
+new WebSocketServerProtocolHandler(
+  "/ws",           // 路径
+  null,            // 子协议
+  false,           // allowExtensions
+  64 * 1024,       // 最大帧大小（字节）= 64KB
+  false,           // allowMaskMismatch
+  true,            // checkStartsWith ← 关键！
+  10000L           // 握手超时（毫秒）= 10秒
+)
+```
+
+### 参数单位
+
+| 参数 | 值 | 单位 | 含义 |
+|---|---|---|---|
+| maxFrameSize | 64 * 1024 = 65536 | 字节（byte） | 单条 WebSocket 消息最大 64KB |
+| handshakeTimeoutMillis | 10000L | 毫秒（ms） | 握手后 10 秒内没完成就断开 |

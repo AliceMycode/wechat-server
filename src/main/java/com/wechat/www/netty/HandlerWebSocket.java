@@ -85,4 +85,12 @@ public class HandlerWebSocket extends SimpleChannelInboundHandler<TextWebSocketF
     }
     return null;
   }
+
+
+  @Override
+  public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+    System.out.println("=== Netty异常: " + cause.getClass().getName() + " - " + cause.getMessage());
+    cause.printStackTrace();
+    ctx.close();
+  }
 }
