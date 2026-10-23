@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Netty WebSocket 服务器启动器
- * 实现 Runnable，在 DataInitRunner 里 new Thread 启动
+ * 实现 Runnable，在 InitRunner 里 new Thread 启动
  */
 @Slf4j
 @Component
@@ -56,7 +56,7 @@ public class NettyWebSocketStarter implements Runnable {
       ServerBootstrap bootstrap = new ServerBootstrap();
       bootstrap.group(bossGroup, workerGroup)
         .channel(NioServerSocketChannel.class)
-        .childHandler(new ChannelInitializer<Channel>() {
+        .childHandler(new ChannelInitializer<>() {
           @Override
           protected void initChannel(Channel ch) {
             ChannelPipeline p = ch.pipeline();

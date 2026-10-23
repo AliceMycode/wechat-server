@@ -1,23 +1,34 @@
-package com.wechat.www.config;
+package com.wechat.www.runner;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.wechat.www.entity.UserInfo;
 import com.wechat.www.enums.UserStatusEnum;
 import com.wechat.www.mapper.UserInfoMapper;
+import com.wechat.www.netty.NettyWebSocketStarter;
+import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
-import jakarta.annotation.Resource;
 
+import javax.sql.DataSource;
+import java.sql.SQLException;
 import java.util.Date;
 
 /**
- * 项目启动时初始化基础数据
- * 目前只做一件事：确保机器人账号 Urobot 在 user_info 表里存在
- * （对应源项目作者手动插入的那条记录，我们改成启动自动补，换库不用再手动插）
+ * 项目启动时执行的初始化任务
+ * 实现 ApplicationRunner：Spring Boot 启动完成后自动执行 run()
+ * 1. 确保机器人账号 Urobot 在 user_info 表里存在（换库不用手动插）
+ * 2. 测试数据库连通后启动 Netty WebSocket 服务
  */
+@Slf4j
 @Component
-public class DataInitRunner implements ApplicationRunner {
+public class InitRunner implements ApplicationRunner {
+
+  @Resource
+  private DataSource dataSource;
+
+  @Resource
+  private NettyWebSocketStarter nettyWebSocketStarter;
 
   @Resource
   private UserInfoMapper userInfoMapper;
@@ -25,6 +36,7 @@ public class DataInitRunner implements ApplicationRunner {
   @Override
   public void run(ApplicationArguments args) {
     initRobotAccount();
+    startNettyServe();
   }
 
   /**
@@ -52,6 +64,23 @@ public class DataInitRunner implements ApplicationRunner {
     robotUser.setLastOffTime(now.getTime());
 
     userInfoMapper.insert(robotUser);
-    System.out.println("=== 初始化机器人账号 Urobot 成功 ===");
+    log.info("初始化机器人账号 Urobot 成功");
+  }
+
+  /**
+   * 测试数据库连通后，新开线程启动 Netty（不阻塞主线程）
+   */
+  private void startNettyServe() {
+    try {
+      // 先拿一下数据库连接，连不上说明配置错了
+      dataSource.getConnection();
+      // 启动 Netty WebSocket 服务
+      new Thread(nettyWebSocketStarter).start();
+      log.info("服务启动成功，可以开始愉快的开发了");
+    } catch (SQLException e) {
+      log.error("数据库配置错误，请检查数据库配置");
+    } catch (Exception e) {
+      log.error("服务启动失败", e);
+    }
   }
 }
