@@ -13,6 +13,7 @@ import com.wechat.www.vo.ResponseVO;
 import com.wechat.www.vo.UserInfoVO;
 import com.wf.captcha.ArithmeticCaptcha;   // easy-captcha 库的算术验证码类（pom 里已引入）
 import jakarta.annotation.Resource;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -73,7 +74,7 @@ public class AccountController extends BaseController {
    * 用 RegisterDto 接收表单字段（前端 POST FormData，Spring 按字段名自动绑定）
    */
   @PostMapping("/register")
-  public ResponseVO<Void> register(RegisterDto dto) {
+  public ResponseVO<Void> register(@Valid RegisterDto dto) {
     checkCheckCode(dto.getCheckCodeKey(), dto.getCheckCode());   // 先校验验证码
     userInfoService.register(dto.getEmail(), dto.getNickName(), dto.getPassword());
     return getSuccessResponseVO(null);          // 注册成功，data 为空
@@ -83,7 +84,7 @@ public class AccountController extends BaseController {
    * 登录：/api/account/login
    */
   @PostMapping("/login")
-  public ResponseVO<UserInfoVO> login(LoginDto dto) {
+  public ResponseVO<UserInfoVO> login(@Valid LoginDto dto) {
     checkCheckCode(dto.getCheckCodeKey(), dto.getCheckCode());
     UserInfoVO userInfoVO = userInfoService.login(dto.getEmail(), dto.getPassword());
     return getSuccessResponseVO(userInfoVO);

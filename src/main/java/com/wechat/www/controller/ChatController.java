@@ -8,6 +8,7 @@ import com.wechat.www.service.ChatMessageService;
 import com.wechat.www.vo.ResponseVO;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,7 +29,8 @@ public class ChatController extends BaseController {
    * 用 SaveMessageDto 接收表单字段：contactId 对方ID、messageContent 内容、messageType 类型（2文字 5媒体）
    */
   @PostMapping("/sendMessage")
-  public ResponseVO<MessageSendDto<Void>> sendMessage(HttpServletRequest request, SaveMessageDto dto) {
+  public ResponseVO<MessageSendDto<Void>> sendMessage(HttpServletRequest request,
+                                                      @Valid SaveMessageDto dto) {
     // 从请求头 token 解析出当前登录用户
     TokenUserInfoDto tokenUserInfoDto = getTokenUserInfo(request);
 

@@ -1,5 +1,6 @@
 package com.wechat.www.dto;
 
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 /**
@@ -8,8 +9,15 @@ import lombok.Data;
 @Data
 public class LoginDto {
 
+  @NotBlank(message = "邮箱不能为空")
   private String email;
+
+  @NotBlank(message = "密码不能为空")
   private String password;
+
+  @NotBlank(message = "验证码不能为空")
   private String checkCodeKey;  // 验证码在 Redis 里的 key
+
+  @NotBlank(message = "验证码答案不能为空")
   private String checkCode;     // 用户输入的验证码答案
 }
