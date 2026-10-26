@@ -1,6 +1,8 @@
 package com.wechat.www.controller;
 
 import com.wechat.www.constant.RedisKeyConstants;
+import com.wechat.www.dto.LoginDto;
+import com.wechat.www.dto.RegisterDto;
 import com.wechat.www.dto.SysSettingDto;
 import com.wechat.www.exception.BusinessException;
 import com.wechat.www.redis.RedisComponet;
@@ -13,7 +15,6 @@ import com.wf.captcha.ArithmeticCaptcha;   // easy-captcha 库的算术验证码
 import jakarta.annotation.Resource;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 
@@ -69,16 +70,12 @@ public class AccountController extends BaseController {
 
   /**
    * 注册：/api/account/register
-   * @RequestParam 接收表单字段（前端 POST FormData）
+   * 用 RegisterDto 接收表单字段（前端 POST FormData，Spring 按字段名自动绑定）
    */
   @PostMapping("/register")
-  public ResponseVO<Void> register(@RequestParam String email,
-                             @RequestParam String nickName,
-                             @RequestParam String password,
-                             @RequestParam String checkCodeKey,
-                             @RequestParam String checkCode) {
-    checkCheckCode(checkCodeKey, checkCode);   // 先校验验证码
-    userInfoService.register(email, nickName, password);
+  public ResponseVO<Void> register(RegisterDto dto) {
+    checkCheckCode(dto.getCheckCodeKey(), dto.getCheckCode());   // 先校验验证码
+    userInfoService.register(dto.getEmail(), dto.getNickName(), dto.getPassword());
     return getSuccessResponseVO(null);          // 注册成功，data 为空
   }
 
@@ -86,12 +83,9 @@ public class AccountController extends BaseController {
    * 登录：/api/account/login
    */
   @PostMapping("/login")
-  public ResponseVO<UserInfoVO> login(@RequestParam String email,
-                          @RequestParam String password,
-                          @RequestParam String checkCodeKey,
-                          @RequestParam String checkCode) {
-    checkCheckCode(checkCodeKey, checkCode);
-    UserInfoVO userInfoVO = userInfoService.login(email, password);
+  public ResponseVO<UserInfoVO> login(LoginDto dto) {
+    checkCheckCode(dto.getCheckCodeKey(), dto.getCheckCode());
+    UserInfoVO userInfoVO = userInfoService.login(dto.getEmail(), dto.getPassword());
     return getSuccessResponseVO(userInfoVO);
   }
 

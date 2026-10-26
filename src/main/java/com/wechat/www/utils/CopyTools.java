@@ -1,5 +1,6 @@
 package com.wechat.www.utils;
 
+import com.wechat.www.dto.MessageSendDto;
 import org.springframework.beans.BeanUtils;
 
 import java.util.ArrayList;
@@ -44,6 +45,17 @@ public class CopyTools {
     } catch (Exception e) {
       throw new RuntimeException("对象拷贝失败", e);
     }
+    BeanUtils.copyProperties(s, t);
+    return t;
+  }
+
+  /**
+   * 拷贝到 MessageSendDto<T>：目标类型带泛型参数，Class 字面量（MessageSendDto.class）
+   * 表达不出泛型参数，所以单独提供这个方法，T 由调用处的赋值目标类型推断
+   * 如：MessageSendDto<Void> dto = CopyTools.copyToMessageSendDto(chatMessage);
+   */
+  public static <S, T> MessageSendDto<T> copyToMessageSendDto(S s) {
+    MessageSendDto<T> t = new MessageSendDto<>();
     BeanUtils.copyProperties(s, t);
     return t;
   }

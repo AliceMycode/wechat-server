@@ -121,6 +121,11 @@ public class UserContactServiceImpl implements UserContactService {
     chatMessage.setContactType(UserContactTypeEnum.USER.getType());    // 0=单聊
     chatMessage.setStatus(MessageStatusEnum.SENDED.getStatus());       // 1=已发送
     chatMessageMapper.insert(chatMessage);
+
+    // 同步 Redis 好友列表缓存：发消息时后端要校验"是不是好友"，
+    // 校验就是从 Redis 这个列表里 contains 一下，不加的话机器人发不出消息
+    redisComponet.addUserContact(userId, robotUid);
+
   }
 
 
