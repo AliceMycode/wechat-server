@@ -3,16 +3,17 @@ package com.wechat.www.controller;
 import com.wechat.www.annotation.GlobalInterceptor;
 import com.wechat.www.dto.TokenUserInfoDto;
 import com.wechat.www.dto.UserContactSearchResultDto;
+import com.wechat.www.dto.ApplyAddDto;
 import com.wechat.www.entity.UserContact;
 import com.wechat.www.enums.ResponseCodeEnum;
 import com.wechat.www.enums.UserContactTypeEnum;
 import com.wechat.www.exception.BusinessException;
 import com.wechat.www.service.UserContactApplyService;
 import com.wechat.www.service.UserContactService;
-import com.wechat.www.vo.PaginationResultVO;
 import com.wechat.www.vo.ResponseVO;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -47,6 +48,11 @@ public class UserContactController extends BaseController {
     if (typeEnum == null) {
       throw new BusinessException(ResponseCodeEnum.CODE_600);
     }
+    if (UserContactTypeEnum.USER == typeEnum) {
+
+    } else if (UserContactTypeEnum.GROUP == typeEnum) {
+     // TODO 群聊
+    }
     // 3. 查列表
     List<UserContact> list = userContactService.loadContact(tokenDto.getUserId(), typeEnum);
     return getSuccessResponseVO(list);
@@ -73,12 +79,9 @@ public class UserContactController extends BaseController {
    */
   @PostMapping("/applyAdd")
   @GlobalInterceptor
-  public ResponseVO<Integer> applyAdd(HttpServletRequest request,
-                             @NotEmpty String contactId,
-                             @NotEmpty String contactType,
-                             String applyInfo) {
+  public ResponseVO<Integer> applyAdd(HttpServletRequest request, @Valid ApplyAddDto applyAddDto) {
     TokenUserInfoDto tokenDto = getTokenUserInfo(request);
-    Integer joinType = userContactApplyService.applyAdd(tokenDto, contactId, contactType, applyInfo);
+    Integer joinType = userContactApplyService.applyAdd(tokenDto, applyAddDto.getContactId(), applyAddDto.getContactType(), applyAddDto.getApplyInfo());
     return getSuccessResponseVO(joinType);
   }
 

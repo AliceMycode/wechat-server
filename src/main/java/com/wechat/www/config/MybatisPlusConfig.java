@@ -8,7 +8,6 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * MyBatis-Plus 配置：注册分页插件，否则 Page 查询不会真正分页（会查全表再截断）
- *
  * @author qiuzhixu
  */
 @Configuration

@@ -1,14 +1,19 @@
 package com.wechat.www.controller;
 
+import com.wechat.www.annotation.GlobalInterceptor;
 import com.wechat.www.dto.MessageSendDto;
 import com.wechat.www.dto.SaveMessageDto;
 import com.wechat.www.dto.TokenUserInfoDto;
 import com.wechat.www.entity.ChatMessage;
+import com.wechat.www.enums.MessageTypeEnum;
+import com.wechat.www.enums.ResponseCodeEnum;
+import com.wechat.www.exception.BusinessException;
 import com.wechat.www.service.ChatMessageService;
 import com.wechat.www.vo.ResponseVO;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.apache.commons.lang3.ArrayUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,8 +34,17 @@ public class ChatController extends BaseController {
    * 用 SaveMessageDto 接收表单字段：contactId 对方ID、messageContent 内容、messageType 类型（2文字 5媒体）
    */
   @PostMapping("/sendMessage")
+  @GlobalInterceptor
   public ResponseVO<MessageSendDto<Void>> sendMessage(HttpServletRequest request,
                                                       @Valid SaveMessageDto dto) {
+    // 消息类型校验
+    MessageTypeEnum messageTypeEnum = MessageTypeEnum.getByType(dto.getMessageType());
+    if (null == messageTypeEnum ||
+      !ArrayUtils.contains(new Integer[]{MessageTypeEnum.CHAT.getType(), MessageTypeEnum.MEDIA_CHAT.getType()}, dto.getMessageType())) {
+      throw new BusinessException(ResponseCodeEnum.CODE_600);
+    }
+
+
     // 从请求头 token 解析出当前登录用户
     TokenUserInfoDto tokenUserInfoDto = getTokenUserInfo(request);
 
@@ -39,6 +53,9 @@ public class ChatController extends BaseController {
     chatMessage.setContactId(dto.getContactId());
     chatMessage.setMessageContent(dto.getMessageContent());
     chatMessage.setMessageType(dto.getMessageType());
+    chatMessage.setFileSize(dto.getFileSize());
+    chatMessage.setFileName(dto.getFileName());
+    chatMessage.setFileType(dto.getFileType());
 
     // 调核心业务，返回推送对象
     MessageSendDto<Void> messageSendDto = chatMessageService.saveMessage(chatMessage, tokenUserInfoDto);

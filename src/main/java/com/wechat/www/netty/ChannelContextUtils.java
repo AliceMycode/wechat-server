@@ -196,20 +196,27 @@ public class ChannelContextUtils {
    */
   public void sendMsg(MessageSendDto<?> msg, String receiveUserId) {
     if (receiveUserId == null) return;
-    Channel channel = USER_CONTEXT_MAP.get(receiveUserId);
-    if (channel == null) return;  // 用户不在线，不在线下发送
+    Channel sendChannel = USER_CONTEXT_MAP.get(receiveUserId);
+    if (sendChannel == null) return;  // 用户不在线，不在线下发送
 
-    // 推送给接收方之前：把 contactId 从"接收人"改成"发送人"
-    // 原因：对接收方来说，这条消息的"联系人"就是发送方
-    // 比如 A 发消息给 B，msg.contactId 原本是 B（接收人），
-    // 推给 B 之前要改成 A（发送人），否则 B 的前端以为联系人是自己
-    if (msg.getSendUserId() != null) {  // INIT 推送时 sendUserId 是 null，跳过
+    // "打招呼消息发回给申请人自己"：联系人不是发送人，从 extendData 里取
+    if (MessageTypeEnum.ADD_FRIEND_SELF.getType().equals(msg.getMessageType())) {
+      UserInfo userInfo = (UserInfo) msg.getExtendData();
+      msg.setMessageType(MessageTypeEnum.ADD_FRIEND.getType());  // 转回普通打招呼消息
+      msg.setContactId(userInfo.getUserId());
+      msg.setContactName(userInfo.getNickName());
+      msg.setExtendData(null);
+    } else if (msg.getSendUserId() != null) {
+      // 推送给接收方之前：把 contactId 从"接收人"改成"发送人"
+      // 原因：对接收方来说，这条消息的"联系人"就是发送方
+      // 比如 A 发消息给 B，msg.contactId 原本是 B（接收人），
+      // 推给 B 之前要改成 A（发送人），否则 B 的前端以为联系人是自己
       msg.setContactId(msg.getSendUserId());
       msg.setContactName(msg.getSendUserNickName());
     }
 
     String json = JsonUtils.convertObj2Json(msg);
     System.out.println("=== sendMsg 推送给 " + receiveUserId + ": " + json);  // ← 加这行
-    channel.writeAndFlush(new TextWebSocketFrame(json));
+    sendChannel.writeAndFlush(new TextWebSocketFrame(json));
   }
 }

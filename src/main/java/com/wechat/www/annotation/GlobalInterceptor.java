@@ -3,7 +3,7 @@ package com.wechat.www.annotation;
 import java.lang.annotation.*;
 
 /**
- * 全局拦截注解（对照源项目 GlobalInterceptor）
+ * 全局拦截注解
  * 贴在 Controller 方法上，进入方法前由 GlobalOperationAspect 自动校验登录态
  */
 @Target({ElementType.METHOD, ElementType.TYPE})

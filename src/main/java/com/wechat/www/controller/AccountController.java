@@ -8,8 +8,10 @@ import com.wechat.www.exception.BusinessException;
 import com.wechat.www.redis.RedisComponet;
 import com.wechat.www.redis.RedisUtils;
 import com.wechat.www.service.UserInfoService;
+import com.wechat.www.utils.CopyTools;
 import com.wechat.www.utils.StringTools;
 import com.wechat.www.vo.ResponseVO;
+import com.wechat.www.vo.SysSettingVO;
 import com.wechat.www.vo.UserInfoVO;
 import com.wf.captcha.ArithmeticCaptcha;   // easy-captcha 库的算术验证码类（pom 里已引入）
 import jakarta.annotation.Resource;
@@ -113,8 +115,9 @@ public class AccountController extends BaseController {
    * 直接返回 SysSettingDto（Redis 没配就用默认值）
    */
   @PostMapping("/getSysSetting")
-  public ResponseVO<SysSettingDto> getSysSetting() {
-    return getSuccessResponseVO(redisComponet.getSysSetting());
+  public ResponseVO<SysSettingVO> getSysSetting() {
+    SysSettingDto sysSettingDto = redisComponet.getSysSetting();
+    return getSuccessResponseVO(CopyTools.copy(sysSettingDto, SysSettingVO.class));
   }
 
 
