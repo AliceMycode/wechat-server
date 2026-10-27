@@ -1,15 +1,22 @@
 package com.wechat.www.netty;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.wechat.www.constant.CommonConstants;
 import com.wechat.www.dto.MessageSendDto;
 import com.wechat.www.dto.WsInitData;
 import com.wechat.www.entity.ChatMessage;
 import com.wechat.www.entity.ChatSession;
 import com.wechat.www.entity.ChatSessionUser;
+import com.wechat.www.entity.UserContactApply;
+import com.wechat.www.entity.UserInfo;
 import com.wechat.www.enums.MessageTypeEnum;
+import com.wechat.www.enums.UserContactApplyStatusEnum;
 import com.wechat.www.mapper.ChatMessageMapper;
 import com.wechat.www.mapper.ChatSessionMapper;
 import com.wechat.www.mapper.ChatSessionUserMapper;
+import com.wechat.www.mapper.UserContactApplyMapper;
+import com.wechat.www.mapper.UserInfoMapper;
 import com.wechat.www.redis.RedisComponet;
 import com.wechat.www.utils.JsonUtils;
 import com.wechat.www.utils.StringTools;
@@ -20,6 +27,7 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -49,6 +57,12 @@ public class ChannelContextUtils {
   @Resource
   private ChatMessageMapper chatMessageMapper;
 
+  @Resource
+  private UserInfoMapper userInfoMapper;
+
+  @Resource
+  private UserContactApplyMapper userContactApplyMapper;
+
   /**
    * 用户连接成功后调用：登记 Channel、保存心跳
    */
@@ -63,6 +77,12 @@ public class ChannelContextUtils {
       USER_CONTEXT_MAP.put(userId, channel);
       redisComponet.saveUserHeartBeat(userId);
       log.info("用户 {} 上线，当前在线 {} 人", userId, USER_CONTEXT_MAP.size());
+
+      // ===== 更新最后登录时间（对照源项目，资料页/头像缓存用）=====
+      userInfoMapper.update(null,
+        new LambdaUpdateWrapper<UserInfo>()
+          .eq(UserInfo::getUserId, userId)
+          .set(UserInfo::getLastLoginTime, new Date()));
 
       // ===== 第二步：查我的会话列表 =====
       // 从 chat_session_user 查当前用户的所有会话
@@ -84,20 +104,42 @@ public class ChannelContextUtils {
             csu.setLastReceiveTime(cs.getLastReceiveTime());
           }
         }
+        // 我们 chat_session_user 表没有 last_receive_time 列，
+        // 用刚从 chat_session 填进去的时间在内存排序：最后消息时间倒序
+        sessionList.sort((a, b) -> {
+          Long ta = a.getLastReceiveTime() == null ? 0L : a.getLastReceiveTime();
+          Long tb = b.getLastReceiveTime() == null ? 0L : b.getLastReceiveTime();
+          return tb.compareTo(ta);
+        });
       }
 
-      // ===== 第三步：查离线消息 =====
-      // 查发给我的消息（contact_id = 当前用户ID），按时间正序
+      // ===== 第三步：查离线消息（只拉"上次下线之后"的，超3天截断）=====
+      UserInfo me = userInfoMapper.selectById(userId);
+      Long sourceLastOffTime = me == null ? null : me.getLastOffTime();
+      Long lastOffTime = sourceLastOffTime;
+      // 离线超过3天的，就只取最近3天，避免一次推一大堆历史
+      if (sourceLastOffTime != null
+          && System.currentTimeMillis() - CommonConstants.MILLISECOND_3DAYS_AGO > sourceLastOffTime) {
+        lastOffTime = System.currentTimeMillis() - CommonConstants.MILLISECOND_3DAYS_AGO;
+      }
+      LambdaQueryWrapper<ChatMessage> msgWrapper = new LambdaQueryWrapper<ChatMessage>()
+        .eq(ChatMessage::getContactId, userId);   // TODO 群模块后补：加 in(我所在的群ID列表)
+      if (lastOffTime != null) {
+        msgWrapper.ge(ChatMessage::getSendTime, lastOffTime);
+      }
       List<ChatMessage> messageList = chatMessageMapper.selectList(
-        new LambdaQueryWrapper<ChatMessage>()
-          .eq(ChatMessage::getContactId, userId)
-          .orderByAsc(ChatMessage::getSendTime));
+        msgWrapper.orderByAsc(ChatMessage::getSendTime));
 
       // ===== 第四步：组装 INIT 数据 =====
       WsInitData initData = new WsInitData();
       initData.setChatSessionList(sessionList);
       initData.setChatMessageList(messageList);
-      initData.setApplyCount(0);  // 好友申请数，后面做好友功能再补
+      // 真实统计"待我处理的好友申请数"，前端右上角红点靠它
+      Long applyCount = userContactApplyMapper.selectCount(
+        new LambdaQueryWrapper<UserContactApply>()
+          .eq(UserContactApply::getReceiveUserId, userId)
+          .eq(UserContactApply::getStatus, UserContactApplyStatusEnum.INIT.getStatus()));
+      initData.setApplyCount(applyCount == null ? 0 : applyCount.intValue());
 
       // ===== 第五步：推给前端 =====
       MessageSendDto<WsInitData> initMsg = new MessageSendDto<>();
@@ -125,6 +167,11 @@ public class ChannelContextUtils {
     if (!StringTools.isEmpty(userId)) {
       USER_CONTEXT_MAP.remove(userId);
       redisComponet.removeUserHeartBeat(userId);
+      // 更新最后下线时间：下次上线时，离线消息就从这个时间点开始拉
+      userInfoMapper.update(null,
+        new LambdaUpdateWrapper<UserInfo>()
+          .eq(UserInfo::getUserId, userId)
+          .set(UserInfo::getLastOffTime, System.currentTimeMillis()));
       log.info("用户 {} 下线，当前在线 {} 人", userId, USER_CONTEXT_MAP.size());
     }
   }

@@ -2,6 +2,7 @@ package com.wechat.www.entity;
 
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.wechat.www.enums.UserContactTypeEnum;
 import lombok.Data;
 
 import java.io.Serial;
@@ -46,4 +47,14 @@ public class ChatSessionUser implements Serializable {
 
   @TableField(exist = false)
   private Integer memberCount;      // 群成员数（群聊才用）
+
+  /**
+   * contactType 派生字段：从 contactId 前缀算（U=0用户，G=1群）
+   * 源项目 ChatSessionUser 就是这个写法，不用数据库存这列
+   */
+  public Integer getContactType() {
+    if (contactId == null) return null;
+    UserContactTypeEnum typeEnum = UserContactTypeEnum.getByPrefix(contactId);
+    return typeEnum == null ? null : typeEnum.getType();
+  }
 }

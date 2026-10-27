@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.wechat.www.enums.UserContactApplyStatusEnum;
 import lombok.Data;
 
 import java.io.Serial;
@@ -46,17 +47,22 @@ public class UserContactApply implements Serializable {
   /** 申请附言（"我是xxx"） */
   private String applyInfo;
 
-  // ===== 下面 3 个是"查询时联表补的字段"，数据库里没有这 3 列 =====
+  // ===== 下面 2 个是"查询时联表补的字段"，数据库里没有这 2 列 =====
 
   /** 申请人昵称（联查 user_info 补） */
   @TableField(exist = false)
   private String contactName;
 
-  /** 申请人最后登录时间（当前端头像缓存时间戳，联查补） */
-  @TableField(exist = false)
-  private Long iconLastUpdateTime;
-
   /** 状态描述（由 status 枚举翻译，给前端展示"已同意/已拒绝"） */
   @TableField(exist = false)
   private String statusName;
+
+  /**
+   * statusName 派生字段：按 status 翻译成"待处理/已同意/已拒绝/已拉黑"
+   * 源项目写法：不存值，读的时候用枚举现算
+   */
+  public String getStatusName() {
+    UserContactApplyStatusEnum statusEnum = UserContactApplyStatusEnum.getByStatus(status);
+    return statusEnum == null ? null : statusEnum.getDesc();
+  }
 }
