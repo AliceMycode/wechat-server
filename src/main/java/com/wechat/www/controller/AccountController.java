@@ -97,14 +97,15 @@ public class AccountController extends BaseController {
     if (StringTools.isEmpty(checkCodeKey) || StringTools.isEmpty(checkCode)) {
       throw new BusinessException("验证码不能为空");
     }
-    Object savedCode = redisUtils.get(RedisKeyConstants.REDIS_KEY_CHECK_CODE + checkCodeKey);
+    String redisKey = RedisKeyConstants.REDIS_KEY_CHECK_CODE + checkCodeKey;
+    Object savedCode = redisUtils.get(redisKey);
+    redisUtils.delete(redisKey);
     if (savedCode == null) {
       throw new BusinessException("验证码已过期，请刷新");
     }
     if (!savedCode.toString().equals(checkCode)) {
       throw new BusinessException("验证码错误");
     }
-    redisUtils.delete(RedisKeyConstants.REDIS_KEY_CHECK_CODE + checkCodeKey);
   }
 
   /**
