@@ -1,7 +1,9 @@
 package com.wechat.www.service;
 
+import com.wechat.www.dto.UserContactSearchResultDto;
 import com.wechat.www.entity.UserContact;
 import com.wechat.www.enums.UserContactTypeEnum;
+import com.wechat.www.vo.PaginationResultVO;
 
 import java.util.List;
 
@@ -22,4 +24,14 @@ public interface UserContactService {
    */
   List<UserContact> loadContact(
     String userId, UserContactTypeEnum contactType);
+
+
+  /**
+   * 搜索联系人：按完整用户ID精确查一个人，顺便返回"我和TA的关系状态"
+   * （对应源项目 searchContact；模糊匹配是前端拿本地数据做的，后端只认完整ID）
+   * @param myUserId 当前登录用户ID
+   * @param contactId 用户完整ID（U开头）或群ID（G开头）
+   */
+  UserContactSearchResultDto searchContact(String myUserId, String contactId);
+
 }

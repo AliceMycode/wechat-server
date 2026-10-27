@@ -1,23 +1,23 @@
 package com.wechat.www.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.wechat.www.dto.SysSettingDto;
+import com.wechat.www.dto.UserContactSearchResultDto;
 import com.wechat.www.entity.*;
-import com.wechat.www.enums.MessageStatusEnum;
-import com.wechat.www.enums.MessageTypeEnum;
-import com.wechat.www.enums.UserContactStatusEnum;
-import com.wechat.www.enums.UserContactTypeEnum;
+import com.wechat.www.enums.*;
+import com.wechat.www.exception.BusinessException;
 import com.wechat.www.mapper.*;
 import com.wechat.www.redis.RedisComponet;
 import com.wechat.www.service.UserContactService;
+import com.wechat.www.utils.CopyTools;
 import com.wechat.www.utils.StringTools;
+import com.wechat.www.vo.PaginationResultVO;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -44,6 +44,9 @@ public class UserContactServiceImpl implements UserContactService {
 
   @Resource
   private UserInfoMapper userInfoMapper;
+
+  @Resource
+  private UserContactApplyMapper userContactApplyMapper;
 
 
   /**
@@ -161,6 +164,45 @@ public class UserContactServiceImpl implements UserContactService {
       }
     }
     return list;
+  }
+
+  @Override
+  public UserContactSearchResultDto searchContact(String myUserId, String contactId) {
+    // ===== 第1步：从 ID 前缀判断搜的是"用户"还是"群"（U=用户，G=群）=====
+    UserContactTypeEnum typeEnum = UserContactTypeEnum.getByPrefix(contactId);
+    if (typeEnum == null) {
+      return null;  // 前缀不对，不是合法ID，前端自己处理"查无此人"
+    }
+    UserContactSearchResultDto resultDto;
+    // ===== 第2步：按类型查库 =====
+    if (UserContactTypeEnum.USER == typeEnum) {
+      UserInfo userInfo = userInfoMapper.selectById(contactId);
+      if (userInfo == null) {
+        return null;  // 用户不存在
+      }
+      // 同名属性自动拷贝（userId/nickName/sex/areaName/personalSignature）
+      resultDto = CopyTools.copy(userInfo, UserContactSearchResultDto.class);
+    } else {
+      // TODO 群搜索：群模块还没做，直接返回 null
+      return null;
+    }
+    // ===== 第3步：补上类型和联系人ID =====
+    resultDto.setContactType(typeEnum.name());  // "USER"
+    resultDto.setContactId(contactId);
+    // ===== 第4步：查"我和TA的关系"，填 status =====
+    // 搜的是我自己 → 直接当好友显示
+    if (myUserId.equals(contactId)) {
+      resultDto.setStatus(UserContactStatusEnum.FRIEND.getStatus());
+      return resultDto;
+    }
+    // 查 user_contact：我→TA 的记录
+    UserContact userContact = userContactMapper.selectOne(
+      new LambdaQueryWrapper<UserContact>()
+        .eq(UserContact::getUserId, myUserId)
+        .eq(UserContact::getContactId, contactId));
+    // 没记录 = 陌生人（status 给 null，和源项目保持一致）
+    resultDto.setStatus(userContact == null ? null : userContact.getStatus());
+    return resultDto;
   }
 
 }

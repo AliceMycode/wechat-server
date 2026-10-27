@@ -1,5 +1,6 @@
 package com.wechat.www.controller;
 
+import com.wechat.www.annotation.GlobalInterceptor;
 import com.wechat.www.dto.TokenUserInfoDto;
 import com.wechat.www.entity.UserInfo;
 import com.wechat.www.enums.ResponseCodeEnum;
@@ -28,13 +29,10 @@ public class UserInfoController extends BaseController {
    * 获取当前登录用户信息（进主界面时前端调一次，用来渲染右上角头像/昵称）
    */
   @PostMapping("/getUserInfo")
+  @GlobalInterceptor
   public ResponseVO<UserInfoVO> getUserInfo(HttpServletRequest request) {
     // 1. 从 token 解析当前登录用户
     TokenUserInfoDto tokenDto = getTokenUserInfo(request);
-    if (tokenDto == null) {
-      // token 失效，前端收到 901 会自动跳回登录页
-      throw new BusinessException(ResponseCodeEnum.CODE_901);
-    }
     // 2. 按 userId 查数据库
     UserInfo userInfo = userInfoService.getUserInfoByUserId(tokenDto.getUserId());
     // 3. 转成 VO（不带 password），补上 admin 标记

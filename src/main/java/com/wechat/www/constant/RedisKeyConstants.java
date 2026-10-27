@@ -24,4 +24,9 @@ public class RedisKeyConstants {
   public static final Integer REDIS_KEY_EXPIRES_HEART_BEAT = 6;
   public static final Integer REDIS_KEY_EXPIRES_DAY = REDIS_KEY_EXPIRES_ONE_MIN * 60 * 24;  // 1 天
   public static final Integer REDIS_KEY_TOKEN_EXPIRES = REDIS_KEY_EXPIRES_DAY * 2;           // token 有效期 2 天
+
+
+  // ============ 消息广播 Topic ============
+  // 所有实例订阅同一个 topic，发消息时 publish，每个实例本地推自己连接的用户
+  public static final String REDIS_KEY_MESSAGE_TOPIC = "message.topic";
 }

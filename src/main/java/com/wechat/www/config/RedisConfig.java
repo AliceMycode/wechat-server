@@ -1,5 +1,11 @@
 package com.wechat.www.config;
 
+import io.lettuce.core.RedisConnectionException;
+import lombok.extern.slf4j.Slf4j;
+import org.redisson.Redisson;
+import org.redisson.api.RedissonClient;
+import org.redisson.config.Config;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -14,7 +20,14 @@ import org.springframework.data.redis.serializer.RedisSerializer;
  * 自定义同名 bean 会自动覆盖 Spring Boot 的默认 bean，无需额外配置。
  */
 @Configuration
+@Slf4j
 public class RedisConfig {
+
+  @Value("${spring.data.redis.host}")
+  private String redisHost;
+
+  @Value("${spring.data.redis.port}")
+  private String redisPort;
 
   @Bean("redisTemplate")
   public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory factory) {
@@ -26,5 +39,20 @@ public class RedisConfig {
     template.setHashValueSerializer(RedisSerializer.json());      // hash 结构的 value 同上
     template.afterPropertiesSet();                                // Spring 要求：属性设置完成后调一次
     return template;
+  }
+
+  /**
+   * Redisson 客户端（对照源项目）：用来做消息发布订阅（多实例部署）
+   */
+  @Bean
+  public RedissonClient redissonClient() {
+    try {
+      Config config = new Config();
+      config.useSingleServer().setAddress("redis://" + redisHost + ":" + redisPort);
+      return Redisson.create(config);
+    } catch (RedisConnectionException e) {
+      log.error("redis配置错误，请检查redis配置");
+    }
+    return null;
   }
 }

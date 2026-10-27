@@ -12,6 +12,7 @@ import com.wechat.www.exception.BusinessException;
 import com.wechat.www.mapper.ChatMessageMapper;
 import com.wechat.www.mapper.ChatSessionMapper;
 import com.wechat.www.netty.ChannelContextUtils;
+import com.wechat.www.netty.MessageHandler;
 import com.wechat.www.redis.RedisComponet;
 import com.wechat.www.service.ChatMessageService;
 import com.wechat.www.utils.CopyTools;
@@ -36,6 +37,9 @@ public class ChatMessageServiceImpl implements ChatMessageService {
 
   @Resource
   private ChannelContextUtils channelContextUtils;
+
+  @Resource
+  private MessageHandler messageHandler;
 
   @Override
   @Transactional(rollbackFor = Exception.class)
@@ -126,7 +130,8 @@ public class ChatMessageServiceImpl implements ChatMessageService {
       saveMessage(robotChatMessage, robot);  // 递归：会走②③④⑤⑥，机器人身份跳过好友校验
     } else {
       // 普通用户：推给对方
-      channelContextUtils.sendMsg(messageSend, contactId);
+      // channelContextUtils.sendMsg(messageSend, contactId);
+      messageHandler.sendMessage(messageSend);
     }
 
     return messageSend;  // 返回给发送方，前端把自己发的消息渲染到界面
