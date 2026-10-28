@@ -1,5 +1,6 @@
 package com.wechat.www.service;
 
+import com.wechat.www.dto.AddContactDto;
 import com.wechat.www.dto.UserContactSearchResultDto;
 import com.wechat.www.entity.UserContact;
 import com.wechat.www.enums.UserContactTypeEnum;
@@ -33,5 +34,12 @@ public interface UserContactService {
    * @param contactId 用户完整ID（U开头）或群ID（G开头）
    */
   UserContactSearchResultDto searchContact(String myUserId, String contactId);
+
+  /**
+   * 建立联系人关系（好友或入群）的唯一入口
+   * 调用场景：①审批好友申请时同意 ②applyAdd 遇到"直接加入"(joinType=0) ③入群（阶段4补）
+   */
+  void addContact(AddContactDto dto);
+
 
 }

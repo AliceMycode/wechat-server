@@ -199,18 +199,25 @@ public class ChannelContextUtils {
     Channel sendChannel = USER_CONTEXT_MAP.get(receiveUserId);
     if (sendChannel == null) return;  // 用户不在线，不在线下发送
 
-    // "打招呼消息发回给申请人自己"：联系人不是发送人，从 extendData 里取
     if (MessageTypeEnum.ADD_FRIEND_SELF.getType().equals(msg.getMessageType())) {
-      UserInfo userInfo = (UserInfo) msg.getExtendData();
-      msg.setMessageType(MessageTypeEnum.ADD_FRIEND.getType());  // 转回普通打招呼消息
-      msg.setContactId(userInfo.getUserId());
-      msg.setContactName(userInfo.getNickName());
-      msg.setExtendData(null);
+      // 特殊分支：打招呼消息发回给申请人自己。
+      // 此时 sendUserId 也是申请人，常规覆写会让申请人看到"聊天对象是自己"→错乱。
+      // 真正的联系人(审批人)在 extendData 里，取出来填进 contactId/contactName，
+      // 然后把类型转回普通 ADD_FRIEND(1)、清掉 extendData——前端永远收不到 13
+      // 用 instanceof 而不是强转：消息经 Redis RTopic 跨实例传输，万一 extendData
+      // 反序列化得不对也只是跳过推送，不会抛 ClassCastException 炸掉监听线程
+      if (msg.getExtendData() instanceof UserInfo userInfo) {
+        msg.setMessageType(MessageTypeEnum.ADD_FRIEND.getType());  // 转回普通打招呼消息
+        msg.setContactId(userInfo.getUserId());
+        msg.setContactName(userInfo.getNickName());
+        msg.setExtendData(null);
+      }
     } else if (msg.getSendUserId() != null) {
       // 推送给接收方之前：把 contactId 从"接收人"改成"发送人"
       // 原因：对接收方来说，这条消息的"联系人"就是发送方
       // 比如 A 发消息给 B，msg.contactId 原本是 B（接收人），
       // 推给 B 之前要改成 A（发送人），否则 B 的前端以为联系人是自己
+      // 常规消息：推给接收方之前，contactId 从"接收人"改成"发送人"
       msg.setContactId(msg.getSendUserId());
       msg.setContactName(msg.getSendUserNickName());
     }

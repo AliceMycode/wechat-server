@@ -2,17 +2,13 @@ package com.wechat.www.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.wechat.www.constant.CommonConstants;
+import com.wechat.www.dto.AddContactDto;
 import com.wechat.www.dto.MessageSendDto;
 import com.wechat.www.dto.TokenUserInfoDto;
 import com.wechat.www.entity.UserContact;
 import com.wechat.www.entity.UserContactApply;
 import com.wechat.www.entity.UserInfo;
-import com.wechat.www.enums.JoinTypeEnum;
-import com.wechat.www.enums.MessageTypeEnum;
-import com.wechat.www.enums.ResponseCodeEnum;
-import com.wechat.www.enums.UserContactApplyStatusEnum;
-import com.wechat.www.enums.UserContactStatusEnum;
-import com.wechat.www.enums.UserContactTypeEnum;
+import com.wechat.www.enums.*;
 import com.wechat.www.exception.BusinessException;
 import com.wechat.www.mapper.UserContactApplyMapper;
 import com.wechat.www.mapper.UserContactMapper;
@@ -20,10 +16,16 @@ import com.wechat.www.mapper.UserInfoMapper;
 import com.wechat.www.netty.ChannelContextUtils;
 import com.wechat.www.netty.MessageHandler;
 import com.wechat.www.service.UserContactApplyService;
+import com.wechat.www.service.UserContactService;
 import com.wechat.www.utils.StringTools;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 好友申请业务实现（对照源项目 UserContactApplyServiceImpl.applyAdd）
@@ -45,6 +47,10 @@ public class UserContactApplyServiceImpl implements UserContactApplyService {
 
   @Resource
   private MessageHandler messageHandler;
+
+  @Resource
+  private UserContactService userContactService;
+
 
   @Override
   @Transactional(rollbackFor = Exception.class)
@@ -84,10 +90,16 @@ public class UserContactApplyServiceImpl implements UserContactApplyService {
     }
     joinType = userInfo.getJoinType();
 
-    // ===== 第5步：joinType=0 直接加入 → 不需要申请，直接建好友关系 =====
-    // TODO：下一个闭环（同意申请）实现 userContactService.addContact(...)
-    // 现在测试号 join_type 都是 null/1(需要审核)，不会进这个分支
+    // ===== 第5步：joinType=0(直接加入) → 不写申请记录，直接建好友关系 =====
+    // 对照源项目 applyAdd：调 addContact 后直接返回，对方申请列表里不会出现这条申请
     if (JoinTypeEnum.JOIN.getType().equals(joinType)) {
+      AddContactDto addDto = new AddContactDto();
+      addDto.setApplyUserId(applyUserId);
+      addDto.setReceiveUserId(receiveUserId);
+      addDto.setContactId(contactId);
+      addDto.setContactType(typeEnum.getType());
+      addDto.setApplyInfo(applyInfo);
+      userContactService.addContact(addDto);
       return joinType;
     }
 
