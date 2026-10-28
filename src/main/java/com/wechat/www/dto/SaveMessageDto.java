@@ -3,6 +3,7 @@ package com.wechat.www.dto;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
@@ -17,7 +18,8 @@ public class SaveMessageDto {
   private String contactId;       // 对方ID（好友userId 或 群ID）
 
   @NotBlank(message = "消息内容不能为空")
-  @Max(value = 500, message = "消息内容不能超过500个字符")
+  // @Max(value = 500, message = "消息内容不能超过500个字符")
+  @Size(max = 500, message = "消息内容不能超过500个字符")   // @Size 才是给 CharSequence 用的
   private String messageContent;  // 消息内容
 
   @NotNull(message = "消息类型不能为空")  // 包装类型专用：只查 null

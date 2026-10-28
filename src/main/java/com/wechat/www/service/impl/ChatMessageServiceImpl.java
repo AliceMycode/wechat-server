@@ -18,11 +18,13 @@ import com.wechat.www.service.ChatMessageService;
 import com.wechat.www.utils.CopyTools;
 import com.wechat.www.utils.StringTools;
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+@Slf4j
 @Service
 public class ChatMessageServiceImpl implements ChatMessageService {
 
@@ -44,7 +46,7 @@ public class ChatMessageServiceImpl implements ChatMessageService {
   @Override
   @Transactional(rollbackFor = Exception.class)
   public MessageSendDto<Void> saveMessage(ChatMessage chatMessage, TokenUserInfoDto tokenUserInfoDto) {
-
+    log.info("保存消息+++：{}", chatMessage);
     // ===== ① 校验消息类型 =====
     // 前端能发的只有普通聊天(2)和媒体消息(5)，其它类型（加好友/建群等系统消息）不是这里发
     MessageTypeEnum messageTypeEnum = MessageTypeEnum.getByType(chatMessage.getMessageType());
