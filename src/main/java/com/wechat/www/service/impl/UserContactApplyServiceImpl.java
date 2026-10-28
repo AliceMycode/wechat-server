@@ -1,6 +1,7 @@
 package com.wechat.www.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.wechat.www.constant.CommonConstants;
 import com.wechat.www.dto.AddContactDto;
 import com.wechat.www.dto.MessageSendDto;
@@ -18,6 +19,7 @@ import com.wechat.www.netty.MessageHandler;
 import com.wechat.www.service.UserContactApplyService;
 import com.wechat.www.service.UserContactService;
 import com.wechat.www.utils.StringTools;
+import com.wechat.www.vo.PaginationResultVO;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -140,4 +142,45 @@ public class UserContactApplyServiceImpl implements UserContactApplyService {
     }
     return joinType;
   }
+
+
+  /** 申请列表每页条数（源项目 PageSize.SIZE15） */
+  private static final int APPLY_PAGE_SIZE = 15;
+
+  @Override
+  public PaginationResultVO<UserContactApply> loadApply(String receiveUserId, Integer pageNo) {
+    // 1. 页码兜底：前端第一页不传 pageNo → 默认 1（源项目 Integer 允许 null，这里补齐）
+    int curPageNo = pageNo == null ? 1 : pageNo;
+
+    // 2. MP 分页查询：只查"发给我的"申请，按最后申请时间倒序
+    //    selectPage 会自动执行 count + limit 两条 SQL，count 存在 Page 对象里
+    Page<UserContactApply> page = new Page<>(curPageNo, APPLY_PAGE_SIZE);
+    Page<UserContactApply> result = userContactApplyMapper.selectPage(page,
+      new LambdaQueryWrapper<UserContactApply>()
+        .eq(UserContactApply::getReceiveUserId, receiveUserId)
+        .orderByDesc(UserContactApply::getLastApplyTime));
+
+    // 3. 批量补申请人昵称（对照源项目 LEFT JOIN user_info 的 contactName）
+    //    前端申请列表显示的是"申请人"的昵称，所以按 apply_user_id 查
+    List<UserContactApply> list = result.getRecords();
+    if (!list.isEmpty()) {
+      List<String> applyUserIds = list.stream()
+        .map(UserContactApply::getApplyUserId).distinct().toList();
+      List<UserInfo> applyUsers = userInfoMapper.selectByIds(applyUserIds);
+      Map<String, UserInfo> userMap = applyUsers.stream()
+        .collect(Collectors.toMap(UserInfo::getUserId, u -> u));
+      for (UserContactApply apply : list) {
+        UserInfo u = userMap.get(apply.getApplyUserId());
+        if (u != null) {
+          // contactName 是 @TableField(exist=false) 的展示字段，不进 SQL
+          apply.setContactName(u.getNickName());
+        }
+      }
+    }
+    // statusName 不用管：实体的派生 getter 会按 status 现算"待处理/已同意/..."
+
+    // 4. 组装分页返回（构造器自动算总页数）
+    return new PaginationResultVO<>(curPageNo, APPLY_PAGE_SIZE, result.getTotal(), list);
+  }
+
 }

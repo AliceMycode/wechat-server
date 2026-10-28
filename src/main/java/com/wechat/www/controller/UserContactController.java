@@ -5,11 +5,13 @@ import com.wechat.www.dto.TokenUserInfoDto;
 import com.wechat.www.dto.UserContactSearchResultDto;
 import com.wechat.www.dto.ApplyAddDto;
 import com.wechat.www.entity.UserContact;
+import com.wechat.www.entity.UserContactApply;
 import com.wechat.www.enums.ResponseCodeEnum;
 import com.wechat.www.enums.UserContactTypeEnum;
 import com.wechat.www.exception.BusinessException;
 import com.wechat.www.service.UserContactApplyService;
 import com.wechat.www.service.UserContactService;
+import com.wechat.www.vo.PaginationResultVO;
 import com.wechat.www.vo.ResponseVO;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -83,6 +85,21 @@ public class UserContactController extends BaseController {
     TokenUserInfoDto tokenDto = getTokenUserInfo(request);
     Integer joinType = userContactApplyService.applyAdd(tokenDto, applyAddDto.getContactId(), applyAddDto.getContactType(), applyAddDto.getApplyInfo());
     return getSuccessResponseVO(joinType);
+  }
+
+
+  /**
+   * 加载发给我的好友申请列表（分页）
+   * @param pageNo 页码，第一页可不传（默认1）
+   */
+  @PostMapping("/loadApply")
+  @GlobalInterceptor
+  public ResponseVO<PaginationResultVO<UserContactApply>> loadApply(HttpServletRequest request,
+                                                                    Integer pageNo) {
+    TokenUserInfoDto tokenDto = getTokenUserInfo(request);
+    PaginationResultVO<UserContactApply> result =
+      userContactApplyService.loadApply(tokenDto.getUserId(), pageNo);
+    return getSuccessResponseVO(result);
   }
 
 
