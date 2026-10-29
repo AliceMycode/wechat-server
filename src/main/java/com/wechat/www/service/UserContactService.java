@@ -42,4 +42,11 @@ public interface UserContactService {
   void addContact(AddContactDto dto);
 
 
+  /**
+   * 按 userId + contactId 查一条联系人关系（没有返回 null）
+   * 对应源项目 getUserContactByUserIdAndContactId
+   */
+  UserContact getUserContactByUserIdAndContactId(String userId, String contactId);
+
+
 }

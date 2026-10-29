@@ -6,13 +6,18 @@ import com.wechat.www.dto.UserContactSearchResultDto;
 import com.wechat.www.dto.ApplyAddDto;
 import com.wechat.www.entity.UserContact;
 import com.wechat.www.entity.UserContactApply;
+import com.wechat.www.entity.UserInfo;
 import com.wechat.www.enums.ResponseCodeEnum;
+import com.wechat.www.enums.UserContactStatusEnum;
 import com.wechat.www.enums.UserContactTypeEnum;
 import com.wechat.www.exception.BusinessException;
 import com.wechat.www.service.UserContactApplyService;
 import com.wechat.www.service.UserContactService;
+import com.wechat.www.service.UserInfoService;
+import com.wechat.www.utils.CopyTools;
 import com.wechat.www.vo.PaginationResultVO;
 import com.wechat.www.vo.ResponseVO;
+import com.wechat.www.vo.UserInfoVO;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -38,6 +43,9 @@ public class UserContactController extends BaseController {
 
   @Resource
   private UserContactApplyService userContactApplyService;
+
+  @Resource
+  private UserInfoService userInfoService;
 
   /**
    * 加载联系人列表
@@ -119,6 +127,59 @@ public class UserContactController extends BaseController {
     TokenUserInfoDto tokenDto = getTokenUserInfo(request);
     userContactApplyService.dealWithApply(tokenDto.getUserId(), applyId, status);
     return getSuccessResponseVO(null);
+  }
+
+  /**
+   * 获取用户资料（头像悬浮层用）：对方基本信息 + 我和TA的关系状态
+   * 前端据 contactStatus 决定按钮：1 显示"发送消息"，其他显示"加为好友"
+   * @param contactId 对方用户ID
+   */
+  @PostMapping("/getContactInfo")
+  @GlobalInterceptor
+  public ResponseVO<UserInfoVO> getContactInfo(HttpServletRequest request,
+                                               @NotEmpty String contactId) {
+    // 1. 当前登录用户
+    TokenUserInfoDto tokenDto = getTokenUserInfo(request);
+    // 2. 查对方用户信息（service 内部已判空，查不到直接抛"用户不存在"）
+    UserInfo userInfo = userInfoService.getUserInfoByUserId(contactId);
+    // 3. 转 VO（不含 password）
+    UserInfoVO vo = CopyTools.copy(userInfo, UserInfoVO.class);
+    // 4. 关系状态先兜底为"非好友"，查到关系就覆盖成真实状态
+    vo.setContactStatus(UserContactStatusEnum.NOT_FRIEND.getStatus());
+    UserContact userContact = userContactService.getUserContactByUserIdAndContactId(
+      tokenDto.getUserId(), contactId);
+    if (userContact != null) {
+      vo.setContactStatus(userContact.getStatus());
+    }
+    return getSuccessResponseVO(vo);
+  }
+
+  /**
+   * 获取好友详情（好友资料页用）：必须存在有效关系才允许查看
+   * @param contactId 好友用户ID
+   */
+  @PostMapping("/getContactUserInfo")
+  @GlobalInterceptor
+  public ResponseVO<UserInfoVO> getContactUserInfo(HttpServletRequest request,
+                                                   @NotEmpty String contactId) {
+    // 1. 当前登录用户
+    TokenUserInfoDto tokenDto = getTokenUserInfo(request);
+    // 2. 查"我→TA"的关系：好友 / 被删 / 被拉黑 / 首次被拉黑 才允许看
+    //    注意：6(首次被拉黑) 不会出现在 loadContact 里，好友列表点不进来；
+    //    这里放行是为了群成员资料页（群成员不必是好友）等非列表入口
+    UserContact userContact = userContactService.getUserContactByUserIdAndContactId(
+      tokenDto.getUserId(), contactId);
+    if (userContact == null || !List.of(
+      UserContactStatusEnum.FRIEND.getStatus(),
+      UserContactStatusEnum.DEL_BE.getStatus(),
+      UserContactStatusEnum.BLACKLIST_BE.getStatus(),
+      UserContactStatusEnum.BLACKLIST_BE_FIRST.getStatus()
+    ).contains(userContact.getStatus())) {
+      throw new BusinessException(ResponseCodeEnum.CODE_600);
+    }
+    // 3. 查对方用户信息，转 VO 返回
+    UserInfo userInfo = userInfoService.getUserInfoByUserId(contactId);
+    return getSuccessResponseVO(CopyTools.copy(userInfo, UserInfoVO.class));
   }
 
 

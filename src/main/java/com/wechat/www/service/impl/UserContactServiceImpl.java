@@ -139,6 +139,17 @@ public class UserContactServiceImpl implements UserContactService {
 
   }
 
+  /**
+   * 按 userId + contactId 查一条联系人关系（没有返回 null）
+   * 这张表是联合主键，没法 selectById，只能用两个 eq 条件定位
+   */
+  @Override
+  public UserContact getUserContactByUserIdAndContactId(String userId, String contactId) {
+    return userContactMapper.selectOne(
+      new LambdaQueryWrapper<UserContact>()
+        .eq(UserContact::getUserId, userId)
+        .eq(UserContact::getContactId, contactId));
+  }
 
   @Override
   public List<UserContact> loadContact(String userId, UserContactTypeEnum contactType) {
