@@ -183,4 +183,77 @@ public class UserContactApplyServiceImpl implements UserContactApplyService {
     return new PaginationResultVO<>(curPageNo, APPLY_PAGE_SIZE, result.getTotal(), list);
   }
 
+
+  @Override
+  @Transactional(rollbackFor = Exception.class)
+  public void dealWithApply(String userId, Integer applyId, Integer status) {
+    // ===== ① 结果状态校验：必须是 1/2/3，且不能是 0（不能把申请"处理"回待处理）=====
+    UserContactApplyStatusEnum statusEnum = UserContactApplyStatusEnum.getByStatus(status);
+    if (statusEnum == null || statusEnum == UserContactApplyStatusEnum.INIT) {
+      throw new BusinessException(ResponseCodeEnum.CODE_600);
+    }
+
+    // ===== ② 权限校验：申请不存在 or 不是发给我的 → 600 =====
+    // applyId 是这张表的单主键，selectById 直接用
+    UserContactApply applyInfo = userContactApplyMapper.selectById(applyId);
+    if (applyInfo == null || !userId.equals(applyInfo.getReceiveUserId())) {
+      throw new BusinessException(ResponseCodeEnum.CODE_600);
+    }
+
+    // ===== ③ 条件更新：只有"待处理"能被处理 =====
+    // WHERE apply_id=? AND status=0 —— 用 SQL 影响行数当并发锁：
+    // 双击/两个端同时点，只有第一个成功，第二个匹配不到 status=0 的行 → 600
+    UserContactApply updateInfo = new UserContactApply();
+    updateInfo.setStatus(statusEnum.getStatus());
+    updateInfo.setLastApplyTime(System.currentTimeMillis());
+    int count = userContactApplyMapper.update(updateInfo,
+      new LambdaQueryWrapper<UserContactApply>()
+        .eq(UserContactApply::getApplyId, applyId)
+        .eq(UserContactApply::getStatus, UserContactApplyStatusEnum.INIT.getStatus()));
+    if (count == 0) {
+      throw new BusinessException(ResponseCodeEnum.CODE_600);  // 已处理过（重复请求）
+    }
+
+    // ===== ④ 同意 → 复用 1-a 的 addContact 建好友关系 =====
+    if (UserContactApplyStatusEnum.PASS.getStatus().equals(status)) {
+      AddContactDto addDto = new AddContactDto();
+      addDto.setApplyUserId(applyInfo.getApplyUserId());
+      addDto.setReceiveUserId(applyInfo.getReceiveUserId()); // 好友场景 receiveUserId==contactId
+      addDto.setContactId(applyInfo.getContactId());
+      addDto.setContactType(applyInfo.getContactType());
+      addDto.setApplyInfo(applyInfo.getApplyInfo());          // 会话列表"最后一条消息"用申请附言
+      userContactService.addContact(addDto);
+      return;
+    }
+
+    // ===== ⑤ 拉黑：给申请人写一条"被拉黑"的关系记录 =====
+    // 方向：userId=申请人、contactId=接收人。申请人视角状态=6(首次被拉黑)，
+    // 他之后再点"添加好友"会被 applyAdd 第3步的拉黑校验拦下（6 也在拦截范围）
+    if (statusEnum == UserContactApplyStatusEnum.BLACKLIST) {
+      Date curDate = new Date();
+      UserContact userContact = new UserContact();
+      userContact.setUserId(applyInfo.getApplyUserId());
+      userContact.setContactId(applyInfo.getContactId());
+      userContact.setContactType(applyInfo.getContactType());
+      userContact.setCreateTime(curDate);
+      userContact.setStatus(UserContactStatusEnum.BLACKLIST_BE_FIRST.getStatus()); // 6
+      userContact.setLastUpdateTime(curDate);
+      // 源项目 insertOrUpdate（联合主键 on duplicate key）；这张表没有 @TableId，
+      // MP 用不了现成 upsert，且不能复用 saveOrUpdateContact（它会把状态刷回好友1）→ 先查后写
+      UserContact dbContact = userContactMapper.selectOne(
+        new LambdaQueryWrapper<UserContact>()
+          .eq(UserContact::getUserId, userContact.getUserId())
+          .eq(UserContact::getContactId, userContact.getContactId()));
+      if (dbContact != null) {
+        userContactMapper.update(userContact,
+          new LambdaQueryWrapper<UserContact>()
+            .eq(UserContact::getUserId, userContact.getUserId())
+            .eq(UserContact::getContactId, userContact.getContactId()));
+      } else {
+        userContactMapper.insert(userContact);
+      }
+    }
+    // ===== ⑥ 拒绝(REJECT)：什么都不做——状态已在③改成"已拒绝"，申请列表里能看到 =====
+  }
+
 }

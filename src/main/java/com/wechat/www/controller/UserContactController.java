@@ -17,6 +17,8 @@ import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -26,6 +28,7 @@ import java.util.List;
 /**
  * 联系人相关接口
  */
+@Validated   // ← 加这行：开启方法级参数校验，参数上的 @NotEmpty/@NotNull 才会生效
 @RestController
 @RequestMapping("/contact")
 public class UserContactController extends BaseController {
@@ -100,6 +103,22 @@ public class UserContactController extends BaseController {
     PaginationResultVO<UserContactApply> result =
       userContactApplyService.loadApply(tokenDto.getUserId(), pageNo);
     return getSuccessResponseVO(result);
+  }
+
+
+  /**
+   * 处理好友申请：同意 / 拒绝 / 拉黑
+   * @param applyId 申请记录ID
+   * @param status  处理结果：1同意 2拒绝 3拉黑（不能传0）
+   */
+  @PostMapping("/dealWithApply")
+  @GlobalInterceptor
+  public ResponseVO<Void> dealWithApply(HttpServletRequest request,
+                                        @NotNull Integer applyId,
+                                        @NotNull Integer status) {
+    TokenUserInfoDto tokenDto = getTokenUserInfo(request);
+    userContactApplyService.dealWithApply(tokenDto.getUserId(), applyId, status);
+    return getSuccessResponseVO(null);
   }
 
 

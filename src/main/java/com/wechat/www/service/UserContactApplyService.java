@@ -28,4 +28,15 @@ public interface UserContactApplyService {
    * @return 分页结果，list 里每条带申请人昵称(contactName)和状态描述(statusName)
    */
   PaginationResultVO<UserContactApply> loadApply(String receiveUserId, Integer pageNo);
+
+
+
+
+  /**
+   * 处理好友申请（同意/拒绝/拉黑）
+   * @param userId  当前登录用户ID（必须是申请接收人才能处理）
+   * @param applyId 申请记录ID
+   * @param status  处理结果：1同意 2拒绝 3拉黑（0待处理不合法）
+   */
+  void dealWithApply(String userId, Integer applyId, Integer status);
 }
