@@ -1,10 +1,13 @@
 package com.wechat.www.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.wechat.www.config.AppConfig;
 import com.wechat.www.constant.CommonConstants;
+import com.wechat.www.constant.FileConstants;
 import com.wechat.www.dto.MessageSendDto;
 import com.wechat.www.dto.SysSettingDto;
 import com.wechat.www.dto.TokenUserInfoDto;
+import com.wechat.www.dto.UploadFileDto;
 import com.wechat.www.entity.ChatMessage;
 import com.wechat.www.entity.ChatSession;
 import com.wechat.www.enums.*;
@@ -16,13 +19,19 @@ import com.wechat.www.netty.MessageHandler;
 import com.wechat.www.redis.RedisComponet;
 import com.wechat.www.service.ChatMessageService;
 import com.wechat.www.utils.CopyTools;
+import com.wechat.www.utils.DateUtil;
 import com.wechat.www.utils.StringTools;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.ArrayUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
+import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 
 @Slf4j
 @Service
@@ -42,6 +51,9 @@ public class ChatMessageServiceImpl implements ChatMessageService {
 
   @Resource
   private MessageHandler messageHandler;
+
+  @Resource
+  private AppConfig appConfig;
 
   @Override
   @Transactional(rollbackFor = Exception.class)
@@ -137,5 +149,110 @@ public class ChatMessageServiceImpl implements ChatMessageService {
     }
 
     return messageSend;  // 返回给发送方，前端把自己发的消息渲染到界面
+  }
+
+  /**
+   * 保存媒体消息的文件：校验 → 大小限制 → 落盘 → 状态 0→1 → 推 6 通知
+   */
+  @Override
+  public void saveMessageFile(String userId, UploadFileDto dto) {
+    Long messageId = dto.getMessageId();
+    MultipartFile file = dto.getFile();
+    MultipartFile cover = dto.getCover();
+    // ===== ① 消息必须存在，且必须是"我"发的（防串改别人的消息ID）=====
+    ChatMessage message = chatMessageMapper.selectById(messageId);
+    if (message == null || !userId.equals(message.getSendUserId())) {
+      throw new BusinessException(ResponseCodeEnum.CODE_600);
+    }
+
+    // ===== ② 大小限制：按后缀归成 图片/视频/其他文件，分别对比系统设置 =====
+    // 超限直接 return（和源项目一致：静默失败，前端消息停在"发送中"）
+    SysSettingDto sysSetting = redisComponet.getSysSetting();
+    String fileSuffix = StringTools.getFileSuffix(Objects.requireNonNull(file.getOriginalFilename(), "文件名不能为空"));
+    String lowerSuffix = fileSuffix.toLowerCase();
+    if (ArrayUtils.contains(FileConstants.IMAGE_SUFFIX_LIST, lowerSuffix)
+      && file.getSize() > FileConstants.FILE_SIZE_MB * sysSetting.getMaxImageSize()) {
+      return;
+    } else if (ArrayUtils.contains(FileConstants.VIDEO_SUFFIX_LIST, lowerSuffix)
+      && file.getSize() > FileConstants.FILE_SIZE_MB * sysSetting.getMaxVideoSize()) {
+      return;
+    } else if (!ArrayUtils.contains(FileConstants.IMAGE_SUFFIX_LIST, lowerSuffix)
+      && !ArrayUtils.contains(FileConstants.VIDEO_SUFFIX_LIST, lowerSuffix)
+      && file.getSize() > FileConstants.FILE_SIZE_MB * sysSetting.getMaxFileSize()) {
+      return;
+    }
+
+    // ===== ③ 落盘：projectFolder/file/yyyyMM/{messageId}{后缀} =====
+    // 月份目录按"消息发送时间"算，保证下载时能算出同一个目录
+    String fileRealName = messageId + fileSuffix;
+    String month = DateUtil.format(new Date(message.getSendTime()), DateTimePatternEnum.YYYYMM.getPattern());
+    File folder = new File(appConfig.getProjectFolder() + FileConstants.FILE_FOLDER_FILE + month);
+    if (!folder.exists()) {
+      folder.mkdirs();
+    }
+    File uploadFile = new File(folder.getPath() + "/" + fileRealName);
+    try {
+      file.transferTo(uploadFile);
+      // 封面（图片/视频）存成 同路径 + _cover.png
+      if (cover != null) {
+        cover.transferTo(new File(uploadFile.getPath() + FileConstants.COVER_IMAGE_SUFFIX));
+      }
+    } catch (Exception e) {
+      log.error("上传文件失败", e);
+      throw new BusinessException("文件上传失败");
+    }
+
+    // ===== ④ 状态 0(发送中) → 1(已发送) =====
+    ChatMessage updateInfo = new ChatMessage();
+    updateInfo.setMessageId(messageId);
+    updateInfo.setStatus(MessageStatusEnum.SENDED.getStatus());
+    chatMessageMapper.updateById(updateInfo);
+
+    // ===== ⑤ 推 FILE_UPLOAD(6) 给接收方：前端按 messageId 把本地那条消息状态改成已发送 =====
+    // 注意：这里故意不设 sendUserId —— ChannelContextUtils.sendMsg 里
+    // "sendUserId 非空才覆写 contactId" 的逻辑就不会动 contactId
+    MessageSendDto<Void> notify = new MessageSendDto<>();
+    notify.setStatus(MessageStatusEnum.SENDED.getStatus());
+    notify.setMessageId(messageId);
+    notify.setMessageType(MessageTypeEnum.FILE_UPLOAD.getType());  // 6
+    notify.setContactId(message.getContactId());                    // 接收人
+    messageHandler.sendMessage(notify);
+  }
+
+  /**
+   * 取媒体消息对应的本地文件
+   */
+  @Override
+  public File downloadFile(TokenUserInfoDto userInfoDto, Long messageId, Boolean showCover) {
+    ChatMessage message = chatMessageMapper.selectById(messageId);
+    if (message == null) {
+      throw new BusinessException(ResponseCodeEnum.CODE_602);
+    }
+
+    // ===== ① 权限：单聊只有发送方/接收方能下 =====
+    // 源项目这里是 Integer.equals(枚举)，永远 false，等于没校验；这里按意图补上
+    if (UserContactTypeEnum.USER.getType().equals(message.getContactType())
+      && !userInfoDto.getUserId().equals(message.getContactId())
+      && !userInfoDto.getUserId().equals(message.getSendUserId())) {
+      throw new BusinessException(ResponseCodeEnum.CODE_600);
+    }
+    // TODO 群聊：校验当前用户是否在群里（阶段 4 补）
+
+    // ===== ② 按发送时间的月份目录定位文件 =====
+    String month = DateUtil.format(new Date(message.getSendTime()), DateTimePatternEnum.YYYYMM.getPattern());
+    File folder = new File(appConfig.getProjectFolder() + FileConstants.FILE_FOLDER_FILE + month);
+    if (!folder.exists()) {
+      folder.mkdirs();
+    }
+    String fileRealName = messageId + StringTools.getFileSuffix(message.getFileName());
+    if (Boolean.TRUE.equals(showCover)) {
+      fileRealName = fileRealName + FileConstants.COVER_IMAGE_SUFFIX;
+    }
+    File file = new File(folder.getPath() + "/" + fileRealName);
+    if (!file.exists()) {
+      log.info("文件不存在：{}", file.getAbsolutePath());
+      throw new BusinessException(ResponseCodeEnum.CODE_602);
+    }
+    return file;
   }
 }
