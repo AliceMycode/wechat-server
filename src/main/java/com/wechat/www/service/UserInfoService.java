@@ -26,5 +26,6 @@ public interface UserInfoService {
   void updateUserInfo(String userId, SaveUserInfoDto dto,
                       MultipartFile avatarFile, MultipartFile avatarCover);
 
-
+  /** 修改密码：入参是前端提交的明文，内部 MD5 后入库 */
+  void updatePassword(String userId, String password);
 }

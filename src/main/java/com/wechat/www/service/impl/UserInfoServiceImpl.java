@@ -268,4 +268,17 @@ public class UserInfoServiceImpl implements UserInfoService {
     }
   }
 
+
+  /**
+   * 修改密码
+   * 前端传明文，这里 MD5 后入库（和 login 的比对口径保持一致）
+   */
+  @Override
+  public void updatePassword(String userId, String password) {
+    UserInfo updateInfo = new UserInfo();
+    updateInfo.setUserId(userId);
+    updateInfo.setPassword(StringTools.encodeByMD5(password));
+    userInfoMapper.updateById(updateInfo);
+  }
+
 }
