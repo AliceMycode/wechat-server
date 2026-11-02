@@ -182,5 +182,29 @@ public class UserContactController extends BaseController {
     return getSuccessResponseVO(CopyTools.copy(userInfo, UserInfoVO.class));
   }
 
+  /**
+   * 删除联系人
+   * 我的状态 → 已删除(2)，对方那条记录 → 被删除(3)
+   * 聊天记录、会话都不删（与源项目一致）
+   */
+  @PostMapping("/delContact")
+  @GlobalInterceptor
+  public ResponseVO<Void> delContact(HttpServletRequest request, @NotEmpty String contactId) {
+    TokenUserInfoDto tokenDto = getTokenUserInfo(request);
+    userContactService.removeUserContact(tokenDto.getUserId(), contactId, UserContactStatusEnum.DEL);
+    return getSuccessResponseVO(null);
+  }
 
+  /**
+   * 加入黑名单
+   * 我的状态 → 已拉黑(4)，对方那条记录 → 被拉黑(5)
+   * 拉黑后对方再申请加好友会被 applyAdd 的拉黑校验挡掉
+   */
+  @PostMapping("/addContact2BlackList")
+  @GlobalInterceptor
+  public ResponseVO<Void> addContact2BlackList(HttpServletRequest request, @NotEmpty String contactId) {
+    TokenUserInfoDto tokenDto = getTokenUserInfo(request);
+    userContactService.removeUserContact(tokenDto.getUserId(), contactId, UserContactStatusEnum.BLACKLIST);
+    return getSuccessResponseVO(null);
+  }
 }

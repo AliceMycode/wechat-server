@@ -151,6 +151,39 @@ public class UserContactServiceImpl implements UserContactService {
         .eq(UserContact::getContactId, contactId));
   }
 
+  /**
+   * 断绝联系人关系：删好友 / 拉黑 共用
+   * 只改状态、不删数据；不推送 WS（对方刷新列表时才会看到变化，与源项目一致）
+   */
+  @Override
+  @Transactional(rollbackFor = Exception.class)
+  public void removeUserContact(String userId, String contactId, UserContactStatusEnum statusEnum) {
+    // ===== ① 我 → TA：删好友(2) 或 拉黑(4) =====
+    UserContact myUpdate = new UserContact();
+    myUpdate.setStatus(statusEnum.getStatus());
+    userContactMapper.update(myUpdate,
+      new LambdaQueryWrapper<UserContact>()
+        .eq(UserContact::getUserId, userId)
+        .eq(UserContact::getContactId, contactId));
+
+    // ===== ② TA → 我：删除→被删除(3)；拉黑→被拉黑(5) =====
+    // 注意这里是反方向：userId 换成 contactId
+    UserContact friendUpdate = new UserContact();
+    friendUpdate.setStatus(statusEnum == UserContactStatusEnum.DEL
+      ? UserContactStatusEnum.DEL_BE.getStatus()
+      : UserContactStatusEnum.BLACKLIST_BE.getStatus());
+    userContactMapper.update(friendUpdate,
+      new LambdaQueryWrapper<UserContact>()
+        .eq(UserContact::getUserId, contactId)
+        .eq(UserContact::getContactId, userId));
+
+    // ===== ③ 双向清 Redis 好友缓存：不清的话双方还能继续发消息 =====
+    redisComponet.removeUserContact(contactId, userId);  // 从 TA 的缓存里删掉我
+    redisComponet.removeUserContact(userId, contactId);  // 从我的缓存里删掉 TA
+  }
+
+
+
   @Override
   public List<UserContact> loadContact(String userId, UserContactTypeEnum contactType) {
     // 1. 查 user_contact：当前用户 + 指定类型 + 状态是"有效关系"（好友/被删/被拉黑都算，前端要显示）

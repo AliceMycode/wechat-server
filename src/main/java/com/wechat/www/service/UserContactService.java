@@ -3,6 +3,7 @@ package com.wechat.www.service;
 import com.wechat.www.dto.AddContactDto;
 import com.wechat.www.dto.UserContactSearchResultDto;
 import com.wechat.www.entity.UserContact;
+import com.wechat.www.enums.UserContactStatusEnum;
 import com.wechat.www.enums.UserContactTypeEnum;
 import com.wechat.www.vo.PaginationResultVO;
 
@@ -49,4 +50,9 @@ public interface UserContactService {
   UserContact getUserContactByUserIdAndContactId(String userId, String contactId);
 
 
+  /**
+   * 断绝联系人关系：删除好友 / 拉黑 共用
+   * @param statusEnum 我这边的目标状态：DEL(已删除) 或 BLACKLIST(已拉黑)
+   */
+  void removeUserContact(String userId, String contactId, UserContactStatusEnum statusEnum);
 }

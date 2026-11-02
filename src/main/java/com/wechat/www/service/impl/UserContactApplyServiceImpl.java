@@ -111,6 +111,11 @@ public class UserContactApplyServiceImpl implements UserContactApplyService {
         .eq(UserContactApply::getApplyUserId, applyUserId)
         .eq(UserContactApply::getReceiveUserId, receiveUserId)
         .eq(UserContactApply::getContactId, contactId));
+
+    // 是否需要给对方推"新的好友申请"：
+    // 新申请，或上次已经处理过（同意/拒绝/拉黑）才推；已经是待处理的不重复打扰。
+    // ★ 必须在下面改写 dbApply.status 之前算出来，否则条件恒为 false（原 bug 就在这里）
+    boolean needNotify;
     if (dbApply == null) {
       // 新申请：插入一条，状态=待处理
       UserContactApply apply = new UserContactApply();
@@ -122,8 +127,10 @@ public class UserContactApplyServiceImpl implements UserContactApplyService {
       apply.setStatus(UserContactApplyStatusEnum.INIT.getStatus());
       apply.setApplyInfo(applyInfo);
       userContactApplyMapper.insert(apply);
+      needNotify = true;
     } else {
-      // 老申请（对方拒绝过/还没处理）：打回待处理，更新时间和附言
+      // 老申请（对方拒绝过/还没处理）：先记下原状态，再打回待处理
+      needNotify = !UserContactApplyStatusEnum.INIT.getStatus().equals(dbApply.getStatus());
       dbApply.setStatus(UserContactApplyStatusEnum.INIT.getStatus());
       dbApply.setLastApplyTime(curDate);
       dbApply.setApplyInfo(applyInfo);
@@ -131,8 +138,7 @@ public class UserContactApplyServiceImpl implements UserContactApplyService {
     }
 
     // ===== 第7步：WS 推送通知对方 =====
-    // 只有"新申请"或"上次已处理完"才推；已经是待处理就不重复打扰
-    if (dbApply == null || !UserContactApplyStatusEnum.INIT.getStatus().equals(dbApply.getStatus())) {
+    if (needNotify) {
       MessageSendDto<Object> notify = new MessageSendDto<>();
       notify.setMessageType(MessageTypeEnum.CONTACT_APPLY.getType());  // 4
       notify.setMessageContent(applyInfo);
