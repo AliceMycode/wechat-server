@@ -1,7 +1,9 @@
 package com.wechat.www.service;
 
+import com.wechat.www.dto.SaveUserInfoDto;
 import com.wechat.www.entity.UserInfo;
 import com.wechat.www.vo.UserInfoVO;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * 用户信息业务接口
@@ -17,5 +19,12 @@ public interface UserInfoService {
 
   /** 按用户ID查用户信息 */
   UserInfo getUserInfoByUserId(String userId);
+
+  /**
+   * 保存个人信息；昵称变化时会同步 Redis 登录态、会话冗余字段并通知好友
+   */
+  void updateUserInfo(String userId, SaveUserInfoDto dto,
+                      MultipartFile avatarFile, MultipartFile avatarCover);
+
 
 }

@@ -212,7 +212,7 @@ public class ChannelContextUtils {
         msg.setContactName(userInfo.getNickName());
         msg.setExtendData(null);
       }
-    } else if (msg.getSendUserId() != null) {
+    } else  {
       // 推送给接收方之前：把 contactId 从"接收人"改成"发送人"
       // 原因：对接收方来说，这条消息的"联系人"就是发送方
       // 比如 A 发消息给 B，msg.contactId 原本是 B（接收人），

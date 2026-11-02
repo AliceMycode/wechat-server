@@ -3,14 +3,22 @@ package com.wechat.www.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.wechat.www.config.AppConfig;
 import com.wechat.www.constant.CommonConstants;
+import com.wechat.www.constant.FileConstants;
+import com.wechat.www.dto.MessageSendDto;
+import com.wechat.www.dto.SaveUserInfoDto;
 import com.wechat.www.dto.TokenUserInfoDto;
+import com.wechat.www.entity.ChatSessionUser;
 import com.wechat.www.entity.UserContact;
 import com.wechat.www.entity.UserInfo;
+import com.wechat.www.enums.MessageTypeEnum;
 import com.wechat.www.enums.UserContactStatusEnum;
+import com.wechat.www.enums.UserContactTypeEnum;
 import com.wechat.www.enums.UserStatusEnum;
 import com.wechat.www.exception.BusinessException;
+import com.wechat.www.mapper.ChatSessionUserMapper;
 import com.wechat.www.mapper.UserContactMapper;
 import com.wechat.www.mapper.UserInfoMapper;
+import com.wechat.www.netty.MessageHandler;
 import com.wechat.www.redis.RedisComponet;
 import com.wechat.www.service.UserContactService;
 import com.wechat.www.service.UserInfoService;
@@ -18,11 +26,16 @@ import com.wechat.www.utils.CopyTools;
 import com.wechat.www.utils.StringTools;
 import com.wechat.www.vo.UserInfoVO;
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -31,6 +44,7 @@ import java.util.stream.Collectors;
  * 靓号逻辑按要求不写；机器人好友 addContact4Robot 依赖聊天域，
  * 等聊天域里程碑建好后回来补（register 里有 TODO）
  */
+@Slf4j
 @Service("userInfoService")
 public class UserInfoServiceImpl implements UserInfoService {
 
@@ -48,6 +62,12 @@ public class UserInfoServiceImpl implements UserInfoService {
 
   @Resource
   private UserContactService userContactService;
+
+  @Resource
+  private ChatSessionUserMapper chatSessionUserMapper;
+
+  @Resource
+  private MessageHandler messageHandler;
 
 
   /**
@@ -167,6 +187,85 @@ public class UserInfoServiceImpl implements UserInfoService {
       throw new BusinessException("用户不存在");
     }
     return userInfo;
+  }
+
+  /**
+   * 保存个人信息：昵称 / 性别 / 加好友方式 / 地区 / 个性签名 / 头像
+   * 昵称变了要同步三处：Redis 登录态、chat_session_user 冗余字段、在线好友的前端
+   */
+  @Override
+  @Transactional(rollbackFor = Exception.class)
+  public void updateUserInfo(String userId, SaveUserInfoDto dto,
+                             MultipartFile avatarFile, MultipartFile avatarCover) {
+    // ===== ① 头像：传了新头像才落盘，路径必须和 ChatController.downloadFile 的头像分支一致 =====
+    if (avatarFile != null) {
+      File avatarFolder = new File(appConfig.getProjectFolder()
+        + FileConstants.FILE_FOLDER_FILE + FileConstants.FILE_FOLDER_AVATAR_NAME);
+      if (!avatarFolder.exists()) {
+        avatarFolder.mkdirs();
+      }
+      String avatarPath = avatarFolder.getPath() + "/" + userId + FileConstants.IMAGE_SUFFIX;
+      try {
+        avatarFile.transferTo(new File(avatarPath));
+        // 缩略图：前端用 ffmpeg 生成，头像列表/聊天窗口加载的是它
+        if (avatarCover != null) {
+          avatarCover.transferTo(new File(avatarPath + FileConstants.COVER_IMAGE_SUFFIX));
+        }
+      } catch (IOException e) {
+        log.error("头像上传失败", e);
+        throw new BusinessException("头像上传失败");
+      }
+    }
+
+    // ===== ② 先查旧数据：要拿旧昵称判断有没有变化 =====
+    UserInfo dbInfo = getUserInfoByUserId(userId);
+
+    // ===== ③ 更新用户表（DTO 只含可编辑字段，不存在越权）=====
+    UserInfo updateInfo = new UserInfo();
+    updateInfo.setUserId(userId);
+    updateInfo.setNickName(dto.getNickName());
+    updateInfo.setSex(dto.getSex());
+    updateInfo.setJoinType(dto.getJoinType());
+    updateInfo.setAreaName(dto.getAreaName());
+    updateInfo.setAreaCode(dto.getAreaCode());
+    updateInfo.setPersonalSignature(dto.getPersonalSignature());
+    // MP 默认只更新非 null 字段，前端没传的不会被动成 null
+    userInfoMapper.updateById(updateInfo);
+
+    // ===== ④ 昵称没变，后面三处同步都不用做 =====
+    if (Objects.equals(dbInfo.getNickName(), dto.getNickName())) {
+      return;
+    }
+
+    // ===== ⑤ Redis 登录态里的昵称也换掉（WS 推送、token 校验都读它）=====
+    TokenUserInfoDto tokenDto = redisComponet.getTokenUserInfoDtoByUserId(userId);
+    if (tokenDto != null) {
+      tokenDto.setNickName(dto.getNickName());
+      redisComponet.saveTokenUserInfoDto(tokenDto);
+    }
+
+    // ===== ⑥ 好友会话列表里的"我的名字"是冗余存的，一起改 =====
+    ChatSessionUser sessionUserUpdate = new ChatSessionUser();
+    sessionUserUpdate.setContactName(dto.getNickName());
+    chatSessionUserMapper.update(sessionUserUpdate,
+      new LambdaQueryWrapper<ChatSessionUser>()
+        .eq(ChatSessionUser::getContactId, userId));
+
+    // ===== ⑦ 通知在线好友：把会话列表里我的名字改掉 =====
+    List<UserContact> friendList = userContactMapper.selectList(
+      new LambdaQueryWrapper<UserContact>()
+        .eq(UserContact::getContactId, userId)                                // 对方是把我加为好友的人
+        .eq(UserContact::getStatus, UserContactStatusEnum.FRIEND.getStatus())); // 只推给好友
+    for (UserContact friend : friendList) {
+      MessageSendDto<String> msg = new MessageSendDto<>();
+      msg.setMessageType(MessageTypeEnum.CONTACT_NAME_UPDATE.getType());  // 10
+      msg.setContactType(UserContactTypeEnum.USER.getType());             // 0=单聊
+      msg.setContactId(friend.getUserId());                               // 推给谁
+      msg.setSendUserId(userId);                                          // 谁改的名
+      msg.setSendUserNickName(dto.getNickName());
+      msg.setExtendData(dto.getNickName());                               // 前端从这里取新名字
+      messageHandler.sendMessage(msg);
+    }
   }
 
 }
