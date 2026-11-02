@@ -10,4 +10,5 @@ import org.apache.ibatis.annotations.Mapper;
  */
 @Mapper
 public interface UserInfoMapper extends BaseMapper<UserInfo> {
+  // 该写 XML 时绝不手软，能用 MP 时也绝不给自己加戏
 }

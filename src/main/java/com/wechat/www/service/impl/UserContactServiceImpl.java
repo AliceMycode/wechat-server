@@ -207,6 +207,9 @@ public class UserContactServiceImpl implements UserContactService {
       // 转成 Map<userId, UserInfo>，方便 O(1) 取
       Map<String, UserInfo> userInfoMap = userInfoList.stream()
         .collect(Collectors.toMap(UserInfo::getUserId, u -> u));
+      // user_contact 指向的用户不会消失（这个项目没有注销/物理删除账号），所以 user_info 不可能缺行
+      // 这个过滤先保留着，防止后面添加新功能需要，目前加这个过滤也没影响
+      list.removeIf(c -> !userInfoMap.containsKey(c.getContactId()));
       for (UserContact c : list) {
         UserInfo u = userInfoMap.get(c.getContactId());
         if (u != null) {

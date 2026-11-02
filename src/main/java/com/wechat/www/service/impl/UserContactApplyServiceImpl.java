@@ -251,7 +251,12 @@ public class UserContactApplyServiceImpl implements UserContactApplyService {
           .eq(UserContact::getUserId, userContact.getUserId())
           .eq(UserContact::getContactId, userContact.getContactId()));
       if (dbContact != null) {
-        userContactMapper.update(userContact,
+        // 已存在关系：源项目 ON DUPLICATE KEY 只更新 status 和 last_update_time，
+        // 保留原 create_time / contact_type，这里按同样口径只改这两列
+        UserContact update = new UserContact();
+        update.setStatus(UserContactStatusEnum.BLACKLIST_BE_FIRST.getStatus());
+        update.setLastUpdateTime(curDate);
+        userContactMapper.update(update,
           new LambdaQueryWrapper<UserContact>()
             .eq(UserContact::getUserId, userContact.getUserId())
             .eq(UserContact::getContactId, userContact.getContactId()));

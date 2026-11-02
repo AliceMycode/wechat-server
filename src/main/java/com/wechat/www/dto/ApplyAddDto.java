@@ -12,7 +12,7 @@ public class ApplyAddDto {
   @NotEmpty(message = "联系人类型不能为空")
   String contactType;
 
-  @NotEmpty(message = "申请信息不能为空")
+  /** 申请附言：允许为空，为空时服务端自动填"我是{昵称}"（与源项目一致） */
   String applyInfo;
 
 }

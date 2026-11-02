@@ -18,17 +18,18 @@ public class PaginationResultVO<T> implements Serializable {
 
   private Integer pageNo;      // 当前页码（从1开始）
   private Integer pageSize;    // 每页条数
-  private Integer pageTotal;   // 总页数
-  private Long total;          // 总条数
+  private Integer pageTotal;      // 总页数
+  private Long totalCount;        // 总条数（字段名对齐源项目，前端 Table.vue 读 totalCount）
   private List<T> list;        // 当前页数据
 
   /** 构造时自动算总页数 */
   public PaginationResultVO(Integer pageNo, Integer pageSize, Long total, List<T> list) {
     this.pageNo = pageNo;
     this.pageSize = pageSize;
-    this.total = total;
+    this.totalCount = total;
     this.list = list;
     // 总页数 = 向上取整（10条数据每页5条 → 2页；11条 → 3页）
-    this.pageTotal = (int) Math.ceil((double) total / pageSize);
+    // 最小为 1（源项目 SimplePage：总数为 0 时 pageTotal 也是 1）
+    this.pageTotal = Math.max(1, (int) Math.ceil((double) total / pageSize));
   }
 }

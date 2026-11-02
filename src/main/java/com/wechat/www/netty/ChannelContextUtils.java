@@ -97,6 +97,15 @@ public class ChannelContextUtils {
         List<ChatSession> sessionInfoList = chatSessionMapper.selectByIds(sessionIds);
         Map<String, ChatSession> sessionMap = sessionInfoList.stream()
           .collect(Collectors.toMap(ChatSession::getSessionId, s -> s));
+        // 过滤掉 chat_session 里没有的会话（下面这几种场景下才有可能会产生chat_session_user没有对应sessionId的脏数据这时过滤是有效的）
+        // 1、DBA 手工删 chat_session
+        // 2、数据迁移中断
+        // 3、未来新代码忘了加事务
+        // 4、从备份恢复
+        // 这几种场景都属于运维/人为事故，不是程序正常跑出来
+        sessionList = sessionList.stream()
+          .filter(csu -> sessionMap.containsKey(csu.getSessionId()))
+          .collect(Collectors.toList());
         for (ChatSessionUser csu : sessionList) {
           ChatSession cs = sessionMap.get(csu.getSessionId());
           if (cs != null) {
@@ -117,10 +126,11 @@ public class ChannelContextUtils {
       UserInfo me = userInfoMapper.selectById(userId);
       Long sourceLastOffTime = me == null ? null : me.getLastOffTime();
       Long lastOffTime = sourceLastOffTime;
+      long threeDaysAgo = System.currentTimeMillis() - CommonConstants.MILLISECOND_3DAYS_AGO;
       // 离线超过3天的，就只取最近3天，避免一次推一大堆历史
       if (sourceLastOffTime != null
-          && System.currentTimeMillis() - CommonConstants.MILLISECOND_3DAYS_AGO > sourceLastOffTime) {
-        lastOffTime = System.currentTimeMillis() - CommonConstants.MILLISECOND_3DAYS_AGO;
+        && threeDaysAgo > sourceLastOffTime) {
+        lastOffTime = threeDaysAgo;
       }
       LambdaQueryWrapper<ChatMessage> msgWrapper = new LambdaQueryWrapper<ChatMessage>()
         .eq(ChatMessage::getContactId, userId);   // TODO 群模块后补：加 in(我所在的群ID列表)
@@ -135,10 +145,14 @@ public class ChannelContextUtils {
       initData.setChatSessionList(sessionList);
       initData.setChatMessageList(messageList);
       // 真实统计"待我处理的好友申请数"，前端右上角红点靠它
-      Long applyCount = userContactApplyMapper.selectCount(
-        new LambdaQueryWrapper<UserContactApply>()
-          .eq(UserContactApply::getReceiveUserId, userId)
-          .eq(UserContactApply::getStatus, UserContactApplyStatusEnum.INIT.getStatus()));
+      // 源项目额外限定"上次离线之后"的新申请（last_apply_time >= 上次离线时间）
+      LambdaQueryWrapper<UserContactApply> applyWrapper = new LambdaQueryWrapper<UserContactApply>()
+        .eq(UserContactApply::getReceiveUserId, userId)
+        .eq(UserContactApply::getStatus, UserContactApplyStatusEnum.INIT.getStatus());
+      if (sourceLastOffTime != null) {
+        applyWrapper.ge(UserContactApply::getLastApplyTime, sourceLastOffTime);
+      }
+      Long applyCount = userContactApplyMapper.selectCount(applyWrapper);
       initData.setApplyCount(applyCount == null ? 0 : applyCount.intValue());
 
       // ===== 第五步：推给前端 =====

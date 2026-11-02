@@ -1,5 +1,6 @@
 package com.wechat.www.controller;
 
+import com.wechat.www.annotation.GlobalInterceptor;
 import com.wechat.www.constant.RedisKeyConstants;
 import com.wechat.www.dto.LoginDto;
 import com.wechat.www.dto.RegisterDto;
@@ -115,6 +116,7 @@ public class AccountController extends BaseController {
    * 直接返回 SysSettingDto（Redis 没配就用默认值）
    */
   @PostMapping("/getSysSetting")
+  @GlobalInterceptor
   public ResponseVO<SysSettingVO> getSysSetting() {
     SysSettingDto sysSettingDto = redisComponet.getSysSetting();
     return getSuccessResponseVO(CopyTools.copy(sysSettingDto, SysSettingVO.class));
