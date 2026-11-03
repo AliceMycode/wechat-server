@@ -34,6 +34,11 @@ public class NettyWebSocketStarter implements Runnable {
 
 	@Resource
 	private HandlerHeartBeat handlerHeartBeat;
+
+  @Resource
+  private ChannelContextUtils channelContextUtils;
+
+
 	/**
 	 * 1. 启动时，bossGroup 在 5051 端口上开了一个 ServerSocketChannel（监听端口）
 	 * 2. 它的线程一直轮询这个 ServerSocketChannel
@@ -46,6 +51,9 @@ public class NettyWebSocketStarter implements Runnable {
 
 	@PreDestroy  // Spring 关闭时优雅释放
 	public void close() {
+    // 必须在容器销毁前、shutdownGracefully 之前写库（顺序不能反）
+    log.info("Spring 容器关闭，开始保存在线用户下线时间");
+    channelContextUtils.saveAllUserOffTime();
 		bossGroup.shutdownGracefully();
 		workerGroup.shutdownGracefully();
 	}

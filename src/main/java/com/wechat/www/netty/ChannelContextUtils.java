@@ -12,6 +12,7 @@ import com.wechat.www.entity.UserContactApply;
 import com.wechat.www.entity.UserInfo;
 import com.wechat.www.enums.MessageTypeEnum;
 import com.wechat.www.enums.UserContactApplyStatusEnum;
+import com.wechat.www.enums.UserContactTypeEnum;
 import com.wechat.www.mapper.ChatMessageMapper;
 import com.wechat.www.mapper.ChatSessionMapper;
 import com.wechat.www.mapper.ChatSessionUserMapper;
@@ -21,12 +22,16 @@ import com.wechat.www.redis.RedisComponet;
 import com.wechat.www.utils.JsonUtils;
 import com.wechat.www.utils.StringTools;
 import io.netty.channel.Channel;
+import io.netty.channel.group.ChannelGroup;
+import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.util.AttributeKey;
+import io.netty.util.concurrent.GlobalEventExecutor;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +49,9 @@ public class ChannelContextUtils {
 
   /** 在线用户：userId → Netty Channel（线程安全 Map） */
   public static final ConcurrentMap<String, Channel> USER_CONTEXT_MAP = new ConcurrentHashMap<>();
+
+  /** 在线群连接：groupId → 该群所有在线成员 Channel（Netty 自带，写一次全员收到） */
+  public static final ConcurrentMap<String, ChannelGroup> GROUP_CONTEXT_MAP = new ConcurrentHashMap<>();
 
   @Resource
   private RedisComponet redisComponet;
@@ -74,7 +82,28 @@ public class ChannelContextUtils {
       AttributeKey<String> attributeKey = AttributeKey.valueOf(channelId);
       channel.attr(attributeKey).set(userId);
 
-      USER_CONTEXT_MAP.put(userId, channel);
+      // ===== 拉一次我在的所有群 =====
+      // 下面"登记群通道"和"查离线消息"都要用，只查一次 Redis
+      List<String> contactList = redisComponet.getUserContactList(userId);
+      List<String> groupIdList = new ArrayList<>();
+      if (contactList != null) {
+        for (String contactId : contactList) {
+          if (contactId.startsWith(UserContactTypeEnum.GROUP.getPrefix())) {
+            groupIdList.add(contactId);
+          }
+        }
+      }
+      // 把当前连接登记进每个群的 ChannelGroup（群消息广播用）
+      for (String groupId : groupIdList) {
+        add2Group(groupId, channel);
+      }
+
+      // 同一用户重连：把旧连接顶掉并主动关掉，避免旧连接一直挂着变成僵尸。
+      // 旧连接关闭后触发的 channelInactive 会被上面的 remove(userId, channel) 拦下，不会误伤新连接。
+      Channel oldChannel = USER_CONTEXT_MAP.put(userId, channel);
+      if (oldChannel != null && oldChannel != channel) {
+        oldChannel.close();
+      }
       redisComponet.saveUserHeartBeat(userId);
       log.info("用户 {} 上线，当前在线 {} 人", userId, USER_CONTEXT_MAP.size());
 
@@ -132,8 +161,20 @@ public class ChannelContextUtils {
         && threeDaysAgo > sourceLastOffTime) {
         lastOffTime = threeDaysAgo;
       }
+      // LambdaQueryWrapper<ChatMessage> msgWrapper = new LambdaQueryWrapper<ChatMessage>()
+      //   .eq(ChatMessage::getContactId, userId);   // TODO 群模块后补：加 in(我所在的群ID列表)
+
+      // 单聊消息的 contact_id = 接收人 userId
+      // 群消息的 contact_id = 群ID（不是接收人）
+      // 所以要把"我"和"我所有的群"一起放进 in 条件
+      List<String> contactIdList = new ArrayList<>();
+      contactIdList.add(userId);
+      contactIdList.addAll(groupIdList);
+
       LambdaQueryWrapper<ChatMessage> msgWrapper = new LambdaQueryWrapper<ChatMessage>()
-        .eq(ChatMessage::getContactId, userId);   // TODO 群模块后补：加 in(我所在的群ID列表)
+        .in(ChatMessage::getContactId, contactIdList);
+
+
       if (lastOffTime != null) {
         msgWrapper.ge(ChatMessage::getSendTime, lastOffTime);
       }
@@ -178,16 +219,28 @@ public class ChannelContextUtils {
     String channelId = channel.id().toString();
     AttributeKey<String> attributeKey = AttributeKey.valueOf(channelId);
     String userId = channel.attr(attributeKey).get();
-    if (!StringTools.isEmpty(userId)) {
-      USER_CONTEXT_MAP.remove(userId);
-      redisComponet.removeUserHeartBeat(userId);
-      // 更新最后下线时间：下次上线时，离线消息就从这个时间点开始拉
+    if (StringTools.isEmpty(userId)) {
+      return;
+    }
+    // 【关键】带值删除：只有 map 里存的仍然是"这条连接"时才清理。
+    // 用户"退出 → 立刻重新登录"时，旧连接的 channelInactive 是异步延迟触发的；
+    // 如果无条件 remove(userId)，会把新连接刚 put 进去的 Channel 一起删掉，
+    // 结果新连接明明活着，USER_CONTEXT_MAP 里却查不到 → 消息静默丢失。
+    // ConcurrentHashMap.remove(key, value) 是原子的"比较并删除"，天然免疫这个竞态。
+    if (!USER_CONTEXT_MAP.remove(userId, channel)) {
+      return;   // 已被新连接顶替（或已被 closeContext 主动清理），不能碰新连接的心跳/下线时间
+    }
+    redisComponet.removeUserHeartBeat(userId);
+    // 更新最后下线时间：下次上线时，离线消息就从这个时间点开始拉
+    try {
       userInfoMapper.update(null,
         new LambdaUpdateWrapper<UserInfo>()
           .eq(UserInfo::getUserId, userId)
           .set(UserInfo::getLastOffTime, System.currentTimeMillis()));
-      log.info("用户 {} 下线，当前在线 {} 人", userId, USER_CONTEXT_MAP.size());
+    } catch (Exception e) {
+      log.error("更新用户 {} 下线时间失败", userId, e);
     }
+    log.info("用户 {} 下线，当前在线 {} 人", userId, USER_CONTEXT_MAP.size());
   }
 
   /**
@@ -239,5 +292,65 @@ public class ChannelContextUtils {
     String json = JsonUtils.convertObj2Json(msg);
     System.out.println("=== sendMsg 推送给 " + receiveUserId + ": " + json);  // ← 加这行
     sendChannel.writeAndFlush(new TextWebSocketFrame(json));
+  }
+
+
+  /**
+   * 消息按 contactId 前缀分发：U 开头单人推，G 开头群推
+   * 入口：MessageHandler 收到 Redis 广播后调用
+   */
+  public void sendMessage(MessageSendDto<?> msg) {
+    UserContactTypeEnum contactTypeEnum = UserContactTypeEnum.getByPrefix(msg.getContactId());
+    if (contactTypeEnum == null)  return;
+    switch (contactTypeEnum) {
+      case USER -> sendMsg(msg, msg.getContactId());   // 单人：原有逻辑（会覆写 contactId=发送人）
+      case GROUP -> sendMsg2Group(msg);                // 群：原样广播，contactId 保持群ID
+    }
+  }
+
+  /** 群消息：往 ChannelGroup 里写一次，群里所有在线成员都能收到 */
+  private void sendMsg2Group(MessageSendDto<?> msg) {
+    if (msg.getContactId() == null) return;
+    ChannelGroup group = GROUP_CONTEXT_MAP.get(msg.getContactId());
+    if (group == null) return;   // 群里没人 / 从没人上线过
+    group.writeAndFlush(new TextWebSocketFrame(JsonUtils.convertObj2Json(msg)));
+  }
+
+  /** 把一条连接加进群 ChannelGroup；群没有就新建一个 */
+  private void add2Group(String groupId, Channel channel) {
+    ChannelGroup group = GROUP_CONTEXT_MAP.get(groupId);
+    if (group == null) {
+      group = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
+      GROUP_CONTEXT_MAP.put(groupId, group);
+    }
+    if (channel == null) {
+      return;   // 用户不在线，只把群容器建出来
+    }
+    group.add(channel);
+  }
+
+  /** 用户上线/入群时调用：把他的连接登记到群里 */
+  public void addUser2Group(String userId, String groupId) {
+    Channel channel = USER_CONTEXT_MAP.get(userId);
+    add2Group(groupId, channel);
+  }
+
+  /**
+   * 服务端关闭前调用：把所有在线用户的下线时间落库
+   * 为什么不能只靠 removeContext？
+   * 容器关闭时 Netty 是异步断连的，channelInactive 触发时数据源已经销毁，
+   * 写库会失败 → last_off_time 停在很久以前 → 重启后 INIT 把已读消息重推一遍
+   * → 前端未读数累加，红点复活
+   */
+  public void saveAllUserOffTime() {
+    if (USER_CONTEXT_MAP.isEmpty()) return;
+    long now = System.currentTimeMillis();
+    for (String userId : USER_CONTEXT_MAP.keySet()) {
+      userInfoMapper.update(null,
+        new LambdaUpdateWrapper<UserInfo>()
+          .eq(UserInfo::getUserId, userId)
+          .set(UserInfo::getLastOffTime, now));
+    }
+    log.info("服务端关闭，已保存 {} 个在线用户的下线时间", USER_CONTEXT_MAP.size());
   }
 }

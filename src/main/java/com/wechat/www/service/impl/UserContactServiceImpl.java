@@ -49,11 +49,11 @@ public class UserContactServiceImpl implements UserContactService {
   private UserInfoMapper userInfoMapper;
 
   @Resource
-  private UserContactApplyMapper userContactApplyMapper;
+  private MessageHandler messageHandler;
 
 
   @Resource
-  private MessageHandler messageHandler;
+  private GroupInfoMapper groupInfoMapper;
 
 
 
@@ -216,6 +216,23 @@ public class UserContactServiceImpl implements UserContactService {
           c.setContactName(u.getNickName());  // UserContact 里 contactName 是 @TableField(exist=false)，只用于返回前端
           c.setSex(u.getSex());
         }
+      }
+    } else if (contactType == UserContactTypeEnum.GROUP && !list.isEmpty()) {
+      // ===== 群聊分支（源项目 INNER JOIN group_info）=====
+      List<String> groupIds = list.stream().map(UserContact::getContactId).toList();
+      List<GroupInfo> groupList = groupInfoMapper.selectByIds(groupIds);
+      Map<String, GroupInfo> groupMap = groupList.stream()
+        .collect(Collectors.toMap(GroupInfo::getGroupId, g -> g));
+
+      // 排除"我创建的群"（源项目 excludeMyGroup：group_owner_id != c.user_id）
+      // 我建的群在"我创建的群"里展示，不在"我加入的群"里重复出现
+      list.removeIf(c -> {
+        GroupInfo g = groupMap.get(c.getContactId());
+        return g == null || userId.equals(g.getGroupOwnerId());
+      });
+      // 联系人名称换成群名
+      for (UserContact c : list) {
+        c.setContactName(groupMap.get(c.getContactId()).getGroupName());
       }
     }
     return list;

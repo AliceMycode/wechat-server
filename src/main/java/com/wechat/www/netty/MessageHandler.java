@@ -32,7 +32,8 @@ public class MessageHandler {
     topic.addListener(MessageSendDto.class, (redisChannel, sendDto) -> {
       // 接收人ID就在 sendDto.contactId 里，推给本机登录的这个用户
       log.info("收到广播消息:{}", sendDto);
-      channelContextUtils.sendMsg(sendDto, sendDto.getContactId());
+      // channelContextUtils.sendMsg(sendDto, sendDto.getContactId());
+      channelContextUtils.sendMessage(sendDto);   // ← 改成这句：U 单人推，G 群推
     });
   }
 
