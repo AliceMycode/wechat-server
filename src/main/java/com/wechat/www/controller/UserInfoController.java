@@ -1,7 +1,7 @@
 package com.wechat.www.controller;
 
 import com.wechat.www.annotation.GlobalInterceptor;
-import com.wechat.www.constant.CommonConstants;
+import com.wechat.www.constant.RegexConstants;
 import com.wechat.www.dto.SaveUserInfoDto;
 import com.wechat.www.dto.TokenUserInfoDto;
 import com.wechat.www.entity.UserInfo;
@@ -80,7 +80,7 @@ public class UserInfoController extends BaseController {
   @GlobalInterceptor
   public ResponseVO<Void> updatePassword(HttpServletRequest request,
                                          @NotEmpty(message = "密码不能为空")
-                                         @Pattern(regexp = CommonConstants.REGEX_PASSWORD,
+                                         @Pattern(regexp = RegexConstants.REGEX_PASSWORD,
                                            message = "密码只能是数字、字母、特殊字符8~18位") String password) {
     TokenUserInfoDto tokenDto = getTokenUserInfo(request);
     userInfoService.updatePassword(tokenDto.getUserId(), password);

@@ -16,10 +16,6 @@ public class CommonConstants {
   public static final Integer LENGTH_20 = 20;
   public static final Integer LENGTH_30 = 30;
 
-  // ============ 校验正则 ============
-  // 8~18 位，必须同时包含数字和字母，允许特殊字符 ~!@#$%^&*_
-  public static final String REGEX_PASSWORD = "^(?=.*\\d)(?=.*[a-zA-Z])[\\da-zA-Z~!@#$%^&*_]{8,18}$";
-
   // ============ 机器人 ============
   public static final String ROBOT_UID = "Urobot";   // 机器人账号ID
 
