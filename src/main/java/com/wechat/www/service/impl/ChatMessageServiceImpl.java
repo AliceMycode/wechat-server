@@ -10,11 +10,12 @@ import com.wechat.www.dto.TokenUserInfoDto;
 import com.wechat.www.dto.UploadFileDto;
 import com.wechat.www.entity.ChatMessage;
 import com.wechat.www.entity.ChatSession;
+import com.wechat.www.entity.UserContact;
 import com.wechat.www.enums.*;
 import com.wechat.www.exception.BusinessException;
 import com.wechat.www.mapper.ChatMessageMapper;
 import com.wechat.www.mapper.ChatSessionMapper;
-import com.wechat.www.netty.ChannelContextUtils;
+import com.wechat.www.mapper.UserContactMapper;
 import com.wechat.www.netty.MessageHandler;
 import com.wechat.www.redis.RedisComponet;
 import com.wechat.www.service.ChatMessageService;
@@ -47,13 +48,13 @@ public class ChatMessageServiceImpl implements ChatMessageService {
   private RedisComponet redisComponet;
 
   @Resource
-  private ChannelContextUtils channelContextUtils;
-
-  @Resource
   private MessageHandler messageHandler;
 
   @Resource
   private AppConfig appConfig;
+
+  @Resource
+  private UserContactMapper userContactMapper;
 
   @Override
   @Transactional(rollbackFor = Exception.class)
@@ -101,8 +102,12 @@ public class ChatMessageServiceImpl implements ChatMessageService {
     Long sessionCount = chatSessionMapper.selectCount(
       new LambdaQueryWrapper<ChatSession>()
         .eq(ChatSession::getSessionId, sessionId));
+    // 群聊：会话列表要显示"谁发的"；建群消息本身就是系统文案，不加前缀
+    String lastMessage = contactTypeEnum == UserContactTypeEnum.GROUP
+      ? tokenUserInfoDto.getNickName() + "：" + messageContent
+      : messageContent;
     ChatSession chatSession = new ChatSession();
-    chatSession.setLastMessage(messageContent);
+    chatSession.setLastMessage(lastMessage);
     chatSession.setLastReceiveTime(curTime);
     if (sessionCount > 0) {
       // 会话存在：更新最后一条消息和时间
@@ -130,7 +135,7 @@ public class ChatMessageServiceImpl implements ChatMessageService {
 
     // ===== ⑥ 组装推送对象并推给接收方 =====
     MessageSendDto<Void> messageSend = CopyTools.copyToMessageSendDto(chatMessage);
-
+    messageSend.setLastMessage(lastMessage);
     // 收件人是机器人 → 机器人自动回复（递归调自己，用机器人身份走一遍流程）
     if (CommonConstants.ROBOT_UID.equals(contactId)) {
       SysSettingDto sysSettingDto = redisComponet.getSysSetting();
@@ -144,7 +149,6 @@ public class ChatMessageServiceImpl implements ChatMessageService {
       saveMessage(robotChatMessage, robot);  // 递归：会走②③④⑤⑥，机器人身份跳过好友校验
     } else {
       // 普通用户：推给对方
-      // channelContextUtils.sendMsg(messageSend, contactId);
       messageHandler.sendMessage(messageSend);
     }
 
@@ -188,7 +192,11 @@ public class ChatMessageServiceImpl implements ChatMessageService {
     String month = DateUtil.format(new Date(message.getSendTime()), DateTimePatternEnum.YYYYMM.getPattern());
     File folder = new File(appConfig.getProjectFolder() + FileConstants.FILE_FOLDER_FILE + month);
     if (!folder.exists()) {
-      folder.mkdirs();
+      boolean mkdirs = folder.mkdirs();
+      if (!mkdirs) {
+        log.error("创建文件夹失败：{}", folder.getAbsolutePath());
+        throw new BusinessException("文件上传失败");
+      }
     }
     File uploadFile = new File(folder.getPath() + "/" + fileRealName);
     try {
@@ -236,13 +244,29 @@ public class ChatMessageServiceImpl implements ChatMessageService {
       && !userInfoDto.getUserId().equals(message.getSendUserId())) {
       throw new BusinessException(ResponseCodeEnum.CODE_600);
     }
-    // TODO 群聊：校验当前用户是否在群里（阶段 4 补）
 
+    // ===== ①-2 群聊：必须是当前群成员 =====
+    // 退群/被踢时 user_contact 是物理删除的，这里查不到 → 600
+    if (UserContactTypeEnum.GROUP.getType().equals(message.getContactType())) {
+      Long contactCount = userContactMapper.selectCount(
+        new LambdaQueryWrapper<UserContact>()
+          .eq(UserContact::getUserId, userInfoDto.getUserId())
+          .eq(UserContact::getContactId, message.getContactId())
+          .eq(UserContact::getContactType, UserContactTypeEnum.GROUP.getType())
+          .eq(UserContact::getStatus, UserContactStatusEnum.FRIEND.getStatus()));
+      if (contactCount == null || contactCount == 0) {
+        throw new BusinessException(ResponseCodeEnum.CODE_600);
+      }
+    }
     // ===== ② 按发送时间的月份目录定位文件 =====
     String month = DateUtil.format(new Date(message.getSendTime()), DateTimePatternEnum.YYYYMM.getPattern());
     File folder = new File(appConfig.getProjectFolder() + FileConstants.FILE_FOLDER_FILE + month);
     if (!folder.exists()) {
-      folder.mkdirs();
+      boolean mkdirs = folder.mkdirs();
+      if (!mkdirs) {
+        log.error("创建文件夹失败：{}", folder.getAbsolutePath());
+        throw new BusinessException("文件下载失败");
+      }
     }
     String fileRealName = messageId + StringTools.getFileSuffix(message.getFileName());
     if (Boolean.TRUE.equals(showCover)) {

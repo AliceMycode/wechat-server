@@ -4,6 +4,7 @@ import com.wechat.www.annotation.GlobalInterceptor;
 import com.wechat.www.dto.SaveGroupDto;
 import com.wechat.www.dto.TokenUserInfoDto;
 import com.wechat.www.entity.GroupInfo;
+import com.wechat.www.enums.MessageTypeEnum;
 import com.wechat.www.service.GroupInfoService;
 import com.wechat.www.vo.GroupInfoVO;
 import com.wechat.www.vo.ResponseVO;
@@ -11,6 +12,7 @@ import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -77,5 +79,37 @@ public class GroupController extends BaseController {
                                                    @NotEmpty String groupId) {
     TokenUserInfoDto tokenDto = getTokenUserInfo(request);
     return getSuccessResponseVO(groupInfoService.getGroupInfo4Chat(tokenDto.getUserId(), groupId));
+  }
+
+
+
+  /** 退出群聊 */
+  @PostMapping("/leaveGroup")
+  @GlobalInterceptor
+  public ResponseVO<Void> leaveGroup(HttpServletRequest request, @NotEmpty String groupId) {
+    TokenUserInfoDto tokenDto = getTokenUserInfo(request);
+    groupInfoService.leaveGroup(tokenDto.getUserId(), groupId, MessageTypeEnum.LEAVE_GROUP);
+    return getSuccessResponseVO(null);
+  }
+
+  /** 解散群聊（仅群主） */
+  @PostMapping("/dissolutionGroup")
+  @GlobalInterceptor
+  public ResponseVO<Void> dissolutionGroup(HttpServletRequest request, @NotEmpty String groupId) {
+    TokenUserInfoDto tokenDto = getTokenUserInfo(request);
+    groupInfoService.dissolutionGroup(tokenDto.getUserId(), groupId);
+    return getSuccessResponseVO(null);
+  }
+
+  /** 添加 / 移除群成员（opType: 0=移除 1=添加） */
+  @PostMapping("/addOrRemoveGroupUser")
+  @GlobalInterceptor
+  public ResponseVO<Void> addOrRemoveGroupUser(HttpServletRequest request,
+                                               @NotEmpty String groupId,
+                                               @NotEmpty String selectContacts,
+                                               @NotNull Integer opType) {
+    TokenUserInfoDto tokenDto = getTokenUserInfo(request);
+    groupInfoService.addOrRemoveGroupUser(tokenDto, groupId, selectContacts, opType);
+    return getSuccessResponseVO(null);
   }
 }

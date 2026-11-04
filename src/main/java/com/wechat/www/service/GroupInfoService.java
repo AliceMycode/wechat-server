@@ -1,6 +1,8 @@
 package com.wechat.www.service;
 
+import com.wechat.www.dto.TokenUserInfoDto;
 import com.wechat.www.entity.GroupInfo;
+import com.wechat.www.enums.MessageTypeEnum;
 import com.wechat.www.vo.GroupInfoVO;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -27,4 +29,20 @@ public interface GroupInfoService {
 
   /** 聊天面板右侧：群详情 + 成员列表 */
   GroupInfoVO getGroupInfo4Chat(String userId, String groupId);
+
+
+  /** 退群 / 被踢。messageType 区分：LEAVE_GROUP(11) 主动退，REMOVE_GROUP(12) 被踢 */
+  void leaveGroup(String userId, String groupId, MessageTypeEnum messageTypeEnum);
+
+  /** 解散群（仅群主） */
+  void dissolutionGroup(String userId, String groupId);
+
+  /**
+   * 群主拉人 / 踢人
+   * @param opType 0=移除 1=添加
+   * @param selectContacts 逗号分隔的用户ID串
+   */
+  void addOrRemoveGroupUser(TokenUserInfoDto tokenDto, String groupId,
+                            String selectContacts, Integer opType);
+
 }

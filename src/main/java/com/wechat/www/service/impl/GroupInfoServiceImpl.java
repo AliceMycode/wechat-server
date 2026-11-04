@@ -3,8 +3,10 @@ package com.wechat.www.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.wechat.www.config.AppConfig;
 import com.wechat.www.constant.FileConstants;
+import com.wechat.www.dto.AddContactDto;
 import com.wechat.www.dto.MessageSendDto;
 import com.wechat.www.dto.SysSettingDto;
+import com.wechat.www.dto.TokenUserInfoDto;
 import com.wechat.www.entity.*;
 import com.wechat.www.enums.*;
 import com.wechat.www.exception.BusinessException;
@@ -13,11 +15,13 @@ import com.wechat.www.netty.ChannelContextUtils;
 import com.wechat.www.netty.MessageHandler;
 import com.wechat.www.redis.RedisComponet;
 import com.wechat.www.service.GroupInfoService;
+import com.wechat.www.service.UserContactService;
 import com.wechat.www.utils.CopyTools;
 import com.wechat.www.utils.StringTools;
 import com.wechat.www.vo.GroupInfoVO;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -65,7 +69,8 @@ public class GroupInfoServiceImpl implements GroupInfoService {
   @Resource
   private UserInfoMapper userInfoMapper;
 
-
+  @Autowired
+  private UserContactService userContactService;
 
 
   /**
@@ -187,7 +192,11 @@ public class GroupInfoServiceImpl implements GroupInfoService {
     File avatarFolder = new File(appConfig.getProjectFolder()
       + FileConstants.FILE_FOLDER_FILE + FileConstants.FILE_FOLDER_AVATAR_NAME);
     if (!avatarFolder.exists()) {
-      avatarFolder.mkdirs();
+      boolean mkdirs = avatarFolder.mkdirs();
+      if (!mkdirs) {
+        log.error("创建文件夹失败：{}", avatarFolder.getAbsolutePath());
+        throw new BusinessException("文件上传失败");
+      }
     }
     String filePath = avatarFolder.getPath() + "/" + groupInfo.getGroupId() + FileConstants.IMAGE_SUFFIX;
     try {
@@ -275,4 +284,161 @@ public class GroupInfoServiceImpl implements GroupInfoService {
         .eq(UserContact::getContactId, groupId));
     return count == null ? 0 : count.intValue();
   }
+
+
+
+  /**
+   * 退群 / 被踢
+   * 和源项目的差异：源项目把 Redis 清理 + ChannelGroup 移除放在
+   * ChannelContextUtils.sendMsg2Group 里按消息类型做，这里保持一致
+   */
+  @Override
+  @Transactional(rollbackFor = Exception.class)
+  public void leaveGroup(String userId, String groupId, MessageTypeEnum messageTypeEnum) {
+    GroupInfo groupInfo = groupInfoMapper.selectById(groupId);
+    if (groupInfo == null) {
+      throw new BusinessException(ResponseCodeEnum.CODE_600);
+    }
+    // 群主不能退群，只能解散（源项目同样处理）
+    if (userId.equals(groupInfo.getGroupOwnerId())) {
+      throw new BusinessException("群主不能退出群聊，只能解散群聊");
+    }
+
+    // 物理删除我这一行；影响 0 行说明我本来就不在群里（重复点退群 / 被踢过）
+    int count = userContactMapper.delete(
+      new LambdaQueryWrapper<UserContact>()
+        .eq(UserContact::getUserId, userId)
+        .eq(UserContact::getContactId, groupId));
+    if (count == 0) {
+      throw new BusinessException(ResponseCodeEnum.CODE_600);
+    }
+
+    UserInfo userInfo = userInfoMapper.selectById(userId);
+    String nickName = userInfo == null ? "" : userInfo.getNickName();
+
+    String sessionId = StringTools.getChatSessionId4Group(groupId);
+    long curTime = System.currentTimeMillis();
+    // 11:"%s退出了群聊"  12:"%s被管理员移出了群聊"
+    String messageContent = String.format(messageTypeEnum.getInitMessage(), nickName);
+
+    // ① 会话主表：最后一条消息换成系统提示
+    ChatSession chatSession = new ChatSession();
+    chatSession.setLastMessage(messageContent);
+    chatSession.setLastReceiveTime(curTime);
+    chatSessionMapper.update(chatSession,
+      new LambdaQueryWrapper<ChatSession>()
+        .eq(ChatSession::getSessionId, sessionId));
+
+    // ② 消息表：落一条系统消息（sendUserId 为空 = 系统消息）
+    ChatMessage chatMessage = new ChatMessage();
+    chatMessage.setSessionId(sessionId);
+    chatMessage.setSendTime(curTime);
+    chatMessage.setContactType(UserContactTypeEnum.GROUP.getType());
+    chatMessage.setStatus(MessageStatusEnum.SENDED.getStatus());
+    chatMessage.setMessageType(messageTypeEnum.getType());
+    chatMessage.setContactId(groupId);
+    chatMessage.setMessageContent(messageContent);
+    chatMessageMapper.insert(chatMessage);
+
+    // ③ 剩余人数（status=1 才算在群）
+    Long memberCount = userContactMapper.selectCount(
+      new LambdaQueryWrapper<UserContact>()
+        .eq(UserContact::getContactId, groupId)
+        .eq(UserContact::getStatus, UserContactStatusEnum.FRIEND.getStatus()));
+
+    // ④ 广播；extendData 带退群人 userId —— 前端靠它判断"是不是我自己退的"
+    MessageSendDto<String> messageSend = CopyTools.copyToMessageSendDto(chatMessage);
+    messageSend.setExtendData(userId);
+    messageSend.setMemberCount(memberCount == null ? 0 : memberCount.intValue());
+    messageHandler.sendMessage(messageSend);
+  }
+
+  /** 解散群（仅群主）。软删：group_info → 0，全员 user_contact → 2 */
+  @Override
+  @Transactional(rollbackFor = Exception.class)
+  public void dissolutionGroup(String userId, String groupId) {
+    GroupInfo dbInfo = groupInfoMapper.selectById(groupId);
+    // 源项目这里只判了 groupId 是否为 null，dbInfo 为 null 会 NPE；这里补上
+    if (dbInfo == null || !dbInfo.getGroupOwnerId().equals(userId)) {
+      throw new BusinessException(ResponseCodeEnum.CODE_600);
+    }
+
+    // ① 群 → 解散
+    GroupInfo updateInfo = new GroupInfo();
+    updateInfo.setStatus(GroupStatusEnum.DISSOLUTION.getStatus());
+    groupInfoMapper.update(updateInfo,
+      new LambdaQueryWrapper<GroupInfo>()
+        .eq(GroupInfo::getGroupId, groupId));
+
+    // ② 先查全员（下面清 Redis 要用），再把 status 统一改成 2
+    List<UserContact> memberList = userContactMapper.selectList(
+      new LambdaQueryWrapper<UserContact>()
+        .eq(UserContact::getContactId, groupId)
+        .eq(UserContact::getContactType, UserContactTypeEnum.GROUP.getType()));
+
+    UserContact updateContact = new UserContact();
+    updateContact.setStatus(UserContactStatusEnum.DEL.getStatus());
+    userContactMapper.update(updateContact,
+      new LambdaQueryWrapper<UserContact>()
+        .eq(UserContact::getContactId, groupId));
+
+    // ③ 清每个人 Redis 缓存里的群ID，否则他们还能继续往这个群发消息
+    for (UserContact uc : memberList) {
+      redisComponet.removeUserContact(uc.getUserId(), groupId);
+    }
+
+    String sessionId = StringTools.getChatSessionId4Group(groupId);
+    long curTime = System.currentTimeMillis();
+    String messageContent = MessageTypeEnum.DISSOLUTION_GROUP.getInitMessage();
+
+    // ④ 会话主表
+    ChatSession chatSession = new ChatSession();
+    chatSession.setLastMessage(messageContent);
+    chatSession.setLastReceiveTime(curTime);
+    chatSessionMapper.update(chatSession,
+      new LambdaQueryWrapper<ChatSession>()
+        .eq(ChatSession::getSessionId, sessionId));
+
+    // ⑤ 消息表
+    ChatMessage chatMessage = new ChatMessage();
+    chatMessage.setSessionId(sessionId);
+    chatMessage.setSendTime(curTime);
+    chatMessage.setContactType(UserContactTypeEnum.GROUP.getType());
+    chatMessage.setStatus(MessageStatusEnum.SENDED.getStatus());
+    chatMessage.setMessageType(MessageTypeEnum.DISSOLUTION_GROUP.getType());
+    chatMessage.setContactId(groupId);
+    chatMessage.setMessageContent(messageContent);
+    chatMessageMapper.insert(chatMessage);
+
+    // ⑥ 广播；ChannelContextUtils 收到 8 号消息后会关掉整个 ChannelGroup
+    MessageSendDto<Void> messageSend = CopyTools.copyToMessageSendDto(chatMessage);
+    messageHandler.sendMessage(messageSend);
+  }
+
+  /** 群主拉人 / 踢人 */
+  @Override
+  @Transactional(rollbackFor = Exception.class)
+  public void addOrRemoveGroupUser(TokenUserInfoDto tokenDto, String groupId,
+                                   String selectContacts, Integer opType) {
+    GroupInfo groupInfo = groupInfoMapper.selectById(groupId);
+    if (groupInfo == null || !groupInfo.getGroupOwnerId().equals(tokenDto.getUserId())) {
+      throw new BusinessException(ResponseCodeEnum.CODE_600);   // 只有群主能操作
+    }
+
+    for (String contactId : selectContacts.split(",")) {
+      if (Integer.valueOf(0).equals(opType)) {
+        // 踢人：复用退群，消息换成 12
+        leaveGroup(contactId, groupId, MessageTypeEnum.REMOVE_GROUP);
+      } else {
+        // 拉人：复用入群（群分支下一批补，先调用）
+        AddContactDto addDto = new AddContactDto();
+        addDto.setApplyUserId(contactId);
+        addDto.setReceiveUserId(groupInfo.getGroupOwnerId());
+        addDto.setContactId(groupId);
+        addDto.setContactType(UserContactTypeEnum.GROUP.getType());
+        userContactService.addContact(addDto);
+      }
+    }
+  }
+
 }

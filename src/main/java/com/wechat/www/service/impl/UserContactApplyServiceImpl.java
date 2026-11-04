@@ -6,15 +6,16 @@ import com.wechat.www.constant.CommonConstants;
 import com.wechat.www.dto.AddContactDto;
 import com.wechat.www.dto.MessageSendDto;
 import com.wechat.www.dto.TokenUserInfoDto;
+import com.wechat.www.entity.GroupInfo;
 import com.wechat.www.entity.UserContact;
 import com.wechat.www.entity.UserContactApply;
 import com.wechat.www.entity.UserInfo;
 import com.wechat.www.enums.*;
 import com.wechat.www.exception.BusinessException;
+import com.wechat.www.mapper.GroupInfoMapper;
 import com.wechat.www.mapper.UserContactApplyMapper;
 import com.wechat.www.mapper.UserContactMapper;
 import com.wechat.www.mapper.UserInfoMapper;
-import com.wechat.www.netty.ChannelContextUtils;
 import com.wechat.www.netty.MessageHandler;
 import com.wechat.www.service.UserContactApplyService;
 import com.wechat.www.service.UserContactService;
@@ -45,13 +46,13 @@ public class UserContactApplyServiceImpl implements UserContactApplyService {
   private UserContactApplyMapper userContactApplyMapper;
 
   @Resource
-  private ChannelContextUtils channelContextUtils;
-
-  @Resource
   private MessageHandler messageHandler;
 
   @Resource
   private UserContactService userContactService;
+
+  @Resource
+  private GroupInfoMapper groupInfoMapper;
 
 
   @Override
@@ -70,7 +71,7 @@ public class UserContactApplyServiceImpl implements UserContactApplyService {
       : applyInfo;
 
     long curDate = System.currentTimeMillis();
-    Integer joinType = null;          // 对方的加入方式：0直接加入 1需要审核
+    Integer joinType;          // 对方的加入方式：0直接加入 1需要审核
     String receiveUserId = contactId; // 申请接收人（加群时要改成群主，现在不做群）
 
     // ===== 第3步：查"我→对方"的记录，判断对方是不是把我拉黑了 =====
@@ -85,12 +86,21 @@ public class UserContactApplyServiceImpl implements UserContactApplyService {
       throw new BusinessException("对方已经把你拉黑，无法添加");
     }
 
-    // ===== 第4步：只做好友场景，查对方用户信息，拿他的 joinType =====
-    UserInfo userInfo = userInfoMapper.selectById(contactId);
-    if (userInfo == null) {
-      throw new BusinessException(ResponseCodeEnum.CODE_600);  // 对方不存在
+    // ===== 第4步：按类型拿对方的 joinType =====
+    if (UserContactTypeEnum.GROUP == typeEnum) {
+      GroupInfo groupInfo = groupInfoMapper.selectById(contactId);
+      if (groupInfo == null || !GroupStatusEnum.NORMAL.getStatus().equals(groupInfo.getStatus())) {
+        throw new BusinessException("群聊不存在或已经解散");
+      }
+      receiveUserId = groupInfo.getGroupOwnerId();   // 群申请由群主审批
+      joinType = groupInfo.getJoinType();
+    } else {
+      UserInfo userInfo = userInfoMapper.selectById(contactId);
+      if (userInfo == null) {
+        throw new BusinessException(ResponseCodeEnum.CODE_600);  // 对方不存在
+      }
+      joinType = userInfo.getJoinType();
     }
-    joinType = userInfo.getJoinType();
 
     // ===== 第5步：joinType=0(直接加入) → 不写申请记录，直接建好友关系 =====
     // 对照源项目 applyAdd：调 addContact 后直接返回，对方申请列表里不会出现这条申请
@@ -143,7 +153,6 @@ public class UserContactApplyServiceImpl implements UserContactApplyService {
       notify.setMessageType(MessageTypeEnum.CONTACT_APPLY.getType());  // 4
       notify.setMessageContent(applyInfo);
       notify.setContactId(receiveUserId);
-      // channelContextUtils.sendMsg(notify, receiveUserId);
       messageHandler.sendMessage(notify);
     }
     return joinType;

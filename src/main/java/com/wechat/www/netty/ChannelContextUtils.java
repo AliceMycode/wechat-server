@@ -232,14 +232,8 @@ public class ChannelContextUtils {
     }
     redisComponet.removeUserHeartBeat(userId);
     // 更新最后下线时间：下次上线时，离线消息就从这个时间点开始拉
-    try {
-      userInfoMapper.update(null,
-        new LambdaUpdateWrapper<UserInfo>()
-          .eq(UserInfo::getUserId, userId)
-          .set(UserInfo::getLastOffTime, System.currentTimeMillis()));
-    } catch (Exception e) {
-      log.error("更新用户 {} 下线时间失败", userId, e);
-    }
+    // 自然断开（关窗口、断网、心跳超时、解散群）：map 里还是它 → remove 成功 → ✅ 写入
+    saveUserOffTime(userId);
     log.info("用户 {} 下线，当前在线 {} 人", userId, USER_CONTEXT_MAP.size());
   }
 
@@ -256,6 +250,10 @@ public class ChannelContextUtils {
     if (channel != null) {
       channel.close();
     }
+    // 登出 / 被踢 / 改密码同样算一次下线。
+    // 这里必须自己写：上面的 remove 已经让 channelInactive 里的
+    // remove(userId, channel) 失败并提前 return，那边不会写这个时间。
+    saveUserOffTime(userId);
   }
 
   /**
@@ -313,16 +311,42 @@ public class ChannelContextUtils {
     if (msg.getContactId() == null) return;
     ChannelGroup group = GROUP_CONTEXT_MAP.get(msg.getContactId());
     if (group == null) return;   // 群里没人 / 从没人上线过
+
+    // ★ 必须先广播再清理：退群的人自己也要收到那条"XXX退出了群聊"，
+    //   前端靠它把本地会话删掉（wsClient.js:121）
     group.writeAndFlush(new TextWebSocketFrame(JsonUtils.convertObj2Json(msg)));
+
+    MessageTypeEnum typeEnum = MessageTypeEnum.getByType(msg.getMessageType());
+
+    // 退群 / 被踢：清这个人的 Redis 好友缓存 + 从 ChannelGroup 摘掉
+    if (typeEnum == MessageTypeEnum.LEAVE_GROUP || typeEnum == MessageTypeEnum.REMOVE_GROUP) {
+      // extendData 经过 Redis 序列化后是 String，用 instanceof 防类型不对炸掉监听线程
+      if (msg.getExtendData() instanceof String userId) {
+        redisComponet.removeUserContact(userId, msg.getContactId());
+        Channel channel = USER_CONTEXT_MAP.get(userId);
+        if (channel != null) {
+          group.remove(channel);
+        }
+      }
+    }
+
+    // 解散群：丢掉群容器。
+    // 注意 group.close() 会关掉组内所有 Channel —— 群里在线成员会断一次 WS，
+    // 前端 wsClient 5 秒后自动重连。这是源项目的行为，保持一致。
+    if (typeEnum == MessageTypeEnum.DISSOLUTION_GROUP) {
+      GROUP_CONTEXT_MAP.remove(msg.getContactId());
+      group.close();
+    }
   }
 
   /** 把一条连接加进群 ChannelGroup；群没有就新建一个 */
   private void add2Group(String groupId, Channel channel) {
-    ChannelGroup group = GROUP_CONTEXT_MAP.get(groupId);
-    if (group == null) {
-      group = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
-      GROUP_CONTEXT_MAP.put(groupId, group);
-    }
+    // computeIfAbsent 是原子的"没有才建"：
+    // 两个用户同时上线会并发走到这里，如果用 get + put，
+    // 双方可能同时看到 null 各建一个 ChannelGroup，后 put 的把先 put 的覆盖掉，
+    // 先登记的人就挂在一个已被丢弃的容器上 → 群消息静默丢失。
+    ChannelGroup group = GROUP_CONTEXT_MAP.computeIfAbsent(groupId,
+      k -> new DefaultChannelGroup(GlobalEventExecutor.INSTANCE));
     if (channel == null) {
       return;   // 用户不在线，只把群容器建出来
     }
@@ -352,5 +376,17 @@ public class ChannelContextUtils {
           .set(UserInfo::getLastOffTime, now));
     }
     log.info("服务端关闭，已保存 {} 个在线用户的下线时间", USER_CONTEXT_MAP.size());
+  }
+
+  /** 记录一次下线时刻：下次上线的离线消息就从这个时间点开始拉 */
+  private void saveUserOffTime(String userId) {
+    try {
+      userInfoMapper.update(null,
+        new LambdaUpdateWrapper<UserInfo>()
+          .eq(UserInfo::getUserId, userId)
+          .set(UserInfo::getLastOffTime, System.currentTimeMillis()));
+    } catch (Exception e) {
+      log.error("更新用户 {} 下线时间失败", userId, e);
+    }
   }
 }

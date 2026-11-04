@@ -1,7 +1,6 @@
 package com.wechat.www.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.wechat.www.dto.AddContactDto;
 import com.wechat.www.dto.MessageSendDto;
 import com.wechat.www.dto.SysSettingDto;
@@ -10,12 +9,12 @@ import com.wechat.www.entity.*;
 import com.wechat.www.enums.*;
 import com.wechat.www.exception.BusinessException;
 import com.wechat.www.mapper.*;
+import com.wechat.www.netty.ChannelContextUtils;
 import com.wechat.www.netty.MessageHandler;
 import com.wechat.www.redis.RedisComponet;
 import com.wechat.www.service.UserContactService;
 import com.wechat.www.utils.CopyTools;
 import com.wechat.www.utils.StringTools;
-import com.wechat.www.vo.PaginationResultVO;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,10 +50,11 @@ public class UserContactServiceImpl implements UserContactService {
   @Resource
   private MessageHandler messageHandler;
 
-
   @Resource
   private GroupInfoMapper groupInfoMapper;
 
+  @Resource
+  private ChannelContextUtils channelContextUtils;
 
 
   /**
@@ -255,8 +255,14 @@ public class UserContactServiceImpl implements UserContactService {
       // 同名属性自动拷贝（userId/nickName/sex/areaName/personalSignature）
       resultDto = CopyTools.copy(userInfo, UserContactSearchResultDto.class);
     } else {
-      // TODO 群搜索：群模块还没做，直接返回 null
-      return null;
+      // 群：查 group_info，展示名用群名。
+      // 源项目这里不校验 status，解散的群也能搜到（再加时会因为群状态被拦）
+      GroupInfo groupInfo = groupInfoMapper.selectById(contactId);
+      if (groupInfo == null) {
+        return null;
+      }
+      resultDto = new UserContactSearchResultDto();
+      resultDto.setNickName(groupInfo.getGroupName());
     }
     // ===== 第3步：补上类型和联系人ID =====
     resultDto.setContactType(typeEnum.name());  // "USER"
@@ -288,8 +294,8 @@ public class UserContactServiceImpl implements UserContactService {
 
     // ===== 群分支：阶段3/4建群时再实现 =====
     if (UserContactTypeEnum.GROUP.getType().equals(contactType)) {
-      // TODO 群聊：人数上限校验 + 群会话 + ADD_GROUP 系统消息（阶段4补）
-      throw new BusinessException(ResponseCodeEnum.CODE_600);  // 防止现在被误调用
+      addGroupContact(dto);
+      return;
     }
 
     Date curDate = new Date();
@@ -417,4 +423,98 @@ public class UserContactServiceImpl implements UserContactService {
       chatSessionUserMapper.insert(sessionUser);
     }
   }
+
+
+  /**
+   * 入群（拉人 / 申请审批通过 共用）
+   * 和好友分支的三点差异：① user_contact 只写单向；② 会话ID按群ID算；③ 系统消息 sendUserId 为空
+   */
+  private void addGroupContact(AddContactDto dto) {
+    String applyUserId = dto.getApplyUserId();
+    String groupId = dto.getContactId();
+
+    // ① 群必须存在且未解散（源项目这里其实没校验，但拉人时群已解散会写出一堆脏数据）
+    GroupInfo groupInfo = groupInfoMapper.selectById(groupId);
+    if (groupInfo == null || !GroupStatusEnum.NORMAL.getStatus().equals(groupInfo.getStatus())) {
+      throw new BusinessException("群聊不存在或已经解散");
+    }
+
+    // ② 人数上限：口径是 status=1（正常在群），已退/已解散的不算
+    Long count = userContactMapper.selectCount(
+      new LambdaQueryWrapper<UserContact>()
+        .eq(UserContact::getContactId, groupId)
+        .eq(UserContact::getStatus, UserContactStatusEnum.FRIEND.getStatus()));
+    SysSettingDto sysSetting = redisComponet.getSysSetting();
+    if (count != null && count >= sysSetting.getMaxGroupMemberCount()) {
+      throw new BusinessException("成员已满，无法加入");
+    }
+
+    Date curDate = new Date();
+
+    // ③ user_contact：只有"我→群"这一条，群不需要反向记录
+    UserContact contact = new UserContact();
+    contact.setUserId(applyUserId);
+    contact.setContactId(groupId);
+    contact.setContactType(UserContactTypeEnum.GROUP.getType());
+    contact.setStatus(UserContactStatusEnum.FRIEND.getStatus());
+    contact.setCreateTime(curDate);
+    contact.setLastUpdateTime(curDate);
+    saveOrUpdateContact(contact);
+
+    // ④ Redis 好友缓存：发消息时"是不是好友"的校验查这个
+    redisComponet.addUserContact(applyUserId, groupId);
+
+    String sessionId = StringTools.getChatSessionId4Group(groupId);
+
+    // ⑤ chat_session_user：只有"我"这个视角，联系人名=群名
+    ChatSessionUser sessionUser = new ChatSessionUser();
+    sessionUser.setUserId(applyUserId);
+    sessionUser.setContactId(groupId);
+    sessionUser.setContactName(groupInfo.getGroupName());
+    sessionUser.setSessionId(sessionId);
+    saveOrUpdateSessionUser(sessionUser);
+
+    // ⑥ 人在线的话，把连接登记进群的 ChannelGroup，否则他收不到后续群消息
+    channelContextUtils.addUser2Group(applyUserId, groupId);
+
+    // ⑦ 系统消息：9 = "%s加入了群组"，sendUserId 为空表示系统发的
+    UserInfo applyUser = userInfoMapper.selectById(applyUserId);
+    String messageContent = String.format(MessageTypeEnum.ADD_GROUP.getInitMessage(),
+      applyUser == null ? "" : applyUser.getNickName());
+
+    ChatMessage chatMessage = new ChatMessage();
+    chatMessage.setSessionId(sessionId);
+    chatMessage.setMessageType(MessageTypeEnum.ADD_GROUP.getType());
+    chatMessage.setMessageContent(messageContent);
+    chatMessage.setSendUserId(null);
+    chatMessage.setSendUserNickName(null);
+    chatMessage.setSendTime(curDate.getTime());
+    chatMessage.setContactId(groupId);
+    chatMessage.setContactType(UserContactTypeEnum.GROUP.getType());
+    chatMessage.setStatus(MessageStatusEnum.SENDED.getStatus());
+    chatMessageMapper.insert(chatMessage);
+
+    // ⑧ chat_session：会话主表，单主键，MP 自带 insertOrUpdate
+    ChatSession chatSession = new ChatSession();
+    chatSession.setSessionId(sessionId);
+    chatSession.setLastMessage(messageContent);
+    chatSession.setLastReceiveTime(curDate.getTime());
+    chatSessionMapper.insertOrUpdate(chatSession);
+
+    // ⑨ 广播。contactId 是 G 开头 → ChannelContextUtils 走 sendMsg2Group 全员推送。
+    //    contactName / lastMessage 必须带：被拉的人本地没有这个会话，
+    //    前端 wsClient.js:114 会用它直接新建一条会话记录
+    Long memberCount = userContactMapper.selectCount(
+      new LambdaQueryWrapper<UserContact>()
+        .eq(UserContact::getContactId, groupId)
+        .eq(UserContact::getStatus, UserContactStatusEnum.FRIEND.getStatus()));
+
+    MessageSendDto<Object> messageSend = CopyTools.copyToMessageSendDto(chatMessage);
+    messageSend.setContactId(groupId);
+    messageSend.setContactName(groupInfo.getGroupName());
+    messageSend.setLastMessage(messageContent);
+    messageSend.setMemberCount(memberCount == null ? 0 : memberCount.intValue());
+    messageHandler.sendMessage(messageSend);
+  }
+
 }
