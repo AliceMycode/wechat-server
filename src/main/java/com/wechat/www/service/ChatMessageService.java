@@ -34,4 +34,12 @@ public interface ChatMessageService {
    * @param showCover   true=取 _cover.png 缩略图
    */
   File downloadFile(TokenUserInfoDto userInfoDto, Long messageId, Boolean showCover);
+
+  /**
+   * 删除会话（只删当前用户视角的 chat_session_user 一行）
+   * 不删 chat_session / chat_message：对方还要用会话主表，历史消息重新开会话后还能看到
+   * @param userId    当前登录用户
+   * @param contactId 会话对应的联系人（用户ID 或 群ID）
+   */
+  void delChatSession(String userId, String contactId);
 }

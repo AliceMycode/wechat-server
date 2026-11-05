@@ -10,12 +10,18 @@ import com.wechat.www.dto.TokenUserInfoDto;
 import com.wechat.www.dto.UploadFileDto;
 import com.wechat.www.entity.ChatMessage;
 import com.wechat.www.entity.ChatSession;
+import com.wechat.www.entity.ChatSessionUser;
+import com.wechat.www.entity.GroupInfo;
 import com.wechat.www.entity.UserContact;
+import com.wechat.www.entity.UserInfo;
 import com.wechat.www.enums.*;
 import com.wechat.www.exception.BusinessException;
 import com.wechat.www.mapper.ChatMessageMapper;
 import com.wechat.www.mapper.ChatSessionMapper;
+import com.wechat.www.mapper.ChatSessionUserMapper;
+import com.wechat.www.mapper.GroupInfoMapper;
 import com.wechat.www.mapper.UserContactMapper;
+import com.wechat.www.mapper.UserInfoMapper;
 import com.wechat.www.netty.MessageHandler;
 import com.wechat.www.redis.RedisComponet;
 import com.wechat.www.service.ChatMessageService;
@@ -30,9 +36,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -55,6 +64,15 @@ public class ChatMessageServiceImpl implements ChatMessageService {
 
   @Resource
   private UserContactMapper userContactMapper;
+
+  @Resource
+  private ChatSessionUserMapper chatSessionUserMapper;
+
+  @Resource
+  private GroupInfoMapper groupInfoMapper;
+
+  @Resource
+  private UserInfoMapper userInfoMapper;
 
   @Override
   @Transactional(rollbackFor = Exception.class)
@@ -133,7 +151,70 @@ public class ChatMessageServiceImpl implements ChatMessageService {
       ? MessageStatusEnum.SENDING.getStatus() : MessageStatusEnum.SENDED.getStatus());
     chatMessageMapper.insert(chatMessage);
 
-    // ===== ⑥ 组装推送对象并推给接收方 =====
+    // ===== ⑥ 兜底：确保每个该看到这条消息的人都有会话记录 =====
+    // 用户可能手动删过会话（服务端这行已被删除），消息到达时必须把会话重建出来；
+    // 否则下次登录 INIT 不推这个会话，离线期间收到的消息就没有入口
+    List<String> memberIds = new ArrayList<>();
+    if (contactTypeEnum == UserContactTypeEnum.USER) {
+      memberIds.add(sendUserId);
+      memberIds.add(contactId);
+    } else {
+      // 群聊：所有在群成员（退群/被踢的人 user_contact 已删，不会出现在这里）
+      List<UserContact> members = userContactMapper.selectList(
+        new LambdaQueryWrapper<UserContact>()
+          .eq(UserContact::getContactId, contactId)
+          .eq(UserContact::getContactType, UserContactTypeEnum.GROUP.getType())
+          .eq(UserContact::getStatus, UserContactStatusEnum.FRIEND.getStatus()));
+      memberIds.addAll(members.stream().map(UserContact::getUserId).toList());
+    }
+    // 机器人不是真实用户，不给它建会话
+    memberIds.remove(CommonConstants.ROBOT_UID);
+
+    // 这条会话下已经有会话记录的用户
+    Set<String> existUserIds = chatSessionUserMapper.selectList(
+        new LambdaQueryWrapper<ChatSessionUser>()
+          .eq(ChatSessionUser::getSessionId, sessionId))
+      .stream().map(ChatSessionUser::getUserId).collect(Collectors.toSet());
+
+    if (memberIds.stream().anyMatch(id -> !existUserIds.contains(id))) {
+      // 群名/对方昵称只在真要补的时候才查，全员都在时零额外开销
+      String groupName = null;
+      if (contactTypeEnum == UserContactTypeEnum.GROUP) {
+        GroupInfo groupInfo = groupInfoMapper.selectById(contactId);
+        groupName = groupInfo == null ? "" : groupInfo.getGroupName();
+      }
+      String contactNickName = null;
+      for (String memberId : memberIds) {
+        if (existUserIds.contains(memberId)) {
+          continue;
+        }
+        // 单聊：会话里的"联系人"永远是对方；群聊：都是群ID
+        String sessionContactId = contactId;
+        String contactName;
+        if (contactTypeEnum == UserContactTypeEnum.GROUP) {
+          contactName = groupName;
+        } else if (memberId.equals(sendUserId)) {
+          // 补的是发送方 → 他的会话列表里显示"接收方"昵称
+          if (contactNickName == null) {
+            UserInfo contactInfo = userInfoMapper.selectById(contactId);
+            contactNickName = contactInfo == null ? "" : contactInfo.getNickName();
+          }
+          contactName = contactNickName;
+        } else {
+          // 补的是接收方 → 会话对象是发送方，列表里显示发送方昵称
+          sessionContactId = sendUserId;
+          contactName = tokenUserInfoDto.getNickName();
+        }
+        ChatSessionUser sessionUser = new ChatSessionUser();
+        sessionUser.setUserId(memberId);
+        sessionUser.setContactId(sessionContactId);
+        sessionUser.setSessionId(sessionId);
+        sessionUser.setContactName(contactName);
+        chatSessionUserMapper.insertIgnore(sessionUser);
+      }
+    }
+
+    // ===== ⑦ 组装推送对象并推给接收方 =====
     MessageSendDto<Void> messageSend = CopyTools.copyToMessageSendDto(chatMessage);
     messageSend.setLastMessage(lastMessage);
     // 收件人是机器人 → 机器人自动回复（递归调自己，用机器人身份走一遍流程）
@@ -278,5 +359,20 @@ public class ChatMessageServiceImpl implements ChatMessageService {
       throw new BusinessException(ResponseCodeEnum.CODE_602);
     }
     return file;
+  }
+
+  /**
+   * 删除会话：物理删除 chat_session_user 里"我的视角"这一行。
+   * 只删这一行，不动 chat_session / chat_message：
+   * - chat_session 是双方/全群共用的，别人还要用
+   * - 历史消息保留，重新打开会话时还能看到
+   * 删掉后 INIT 不再推送该会话，重登也就不会复活。
+   */
+  @Override
+  public void delChatSession(String userId, String contactId) {
+    chatSessionUserMapper.delete(
+      new LambdaQueryWrapper<ChatSessionUser>()
+        .eq(ChatSessionUser::getUserId, userId)
+        .eq(ChatSessionUser::getContactId, contactId));
   }
 }

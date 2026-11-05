@@ -78,6 +78,22 @@ public class ChatController extends BaseController {
     return getSuccessResponseVO(messageSendDto);
   }
 
+
+
+
+  /**
+   * 删除会话
+   * 前端原来只在本地 SQLite 把 status 置 0，服务端不知情，
+   * 下次登录 INIT 会把已删的会话重新推回来。这里补上服务端删除。
+   */
+  @PostMapping("/delChatSession")
+  @GlobalInterceptor
+  public ResponseVO<Void> delChatSession(HttpServletRequest request, @NotEmpty String contactId) {
+    TokenUserInfoDto tokenUserInfoDto = getTokenUserInfo(request);
+    chatMessageService.delChatSession(tokenUserInfoDto.getUserId(), contactId);
+    return getSuccessResponseVO(null);
+  }
+
   /**
    * 上传媒体消息的文件（前端第二步调用，第一步 sendMessage 已经拿到 messageId）
    * 3 个业务参数 → 用 UploadFileDto 接（messageId / file / cover）
