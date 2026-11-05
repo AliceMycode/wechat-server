@@ -215,6 +215,10 @@ public class UserInfoServiceImpl implements UserInfoService {
         log.error("头像上传失败", e);
         throw new BusinessException("头像上传失败");
       }
+      // 头像已更新：通知在线好友重新拉取。
+      // 前端头像是磁盘缓存（file.js 命中 existsSync 就不请求服务端），
+      // 不发这条消息，好友那边永远显示旧图。
+      notifyFriendsAvatarUpdate(userId);
     }
 
     // ===== ② 先查旧数据：要拿旧昵称判断有没有变化 =====
@@ -264,6 +268,27 @@ public class UserInfoServiceImpl implements UserInfoService {
       msg.setSendUserId(userId);                                          // 谁改的名
       msg.setSendUserNickName(dto.getNickName());
       msg.setExtendData(dto.getNickName());                               // 前端从这里取新名字
+      messageHandler.sendMessage(msg);
+    }
+  }
+
+
+  /**
+   * 通知所有好友：我的头像变了。
+   * 走 messageHandler 而不是直接推 Channel，多实例部署时每台实例都能收到。
+   * 前端收到 14 号消息后会把该 userId 标记为强制刷新，重新下载头像并覆盖本地缓存。
+   */
+  private void notifyFriendsAvatarUpdate(String userId) {
+    List<UserContact> friendList = userContactMapper.selectList(
+      new LambdaQueryWrapper<UserContact>()
+        .eq(UserContact::getContactId, userId)                                 // 对方是把我加为好友的人
+        .eq(UserContact::getContactType, UserContactTypeEnum.USER.getType())   // 只要人，不要群
+        .eq(UserContact::getStatus, UserContactStatusEnum.FRIEND.getStatus())); // 只推给好友
+    for (UserContact friend : friendList) {
+      MessageSendDto<Object> msg = new MessageSendDto<>();
+      msg.setMessageType(MessageTypeEnum.CONTACT_AVATAR_UPDATE.getType());  // 14
+      msg.setContactId(friend.getUserId());                                 // 接收人（sendMsg 推送前会改写成发送人）
+      msg.setSendUserId(userId);                                            // 谁换的头像
       messageHandler.sendMessage(msg);
     }
   }

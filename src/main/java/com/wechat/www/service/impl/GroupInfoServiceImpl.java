@@ -208,6 +208,14 @@ public class GroupInfoServiceImpl implements GroupInfoService {
       log.error("群头像上传失败", e);
       throw new BusinessException("头像上传失败");
     }
+
+    // 群头像已更新：广播给群内在线成员重新下载。
+    // 用 messageHandler 走 Redis 广播，contactId 是 G 开头 → ChannelContextUtils 走群推。
+    MessageSendDto<Object> avatarUpdate = new MessageSendDto<>();
+    avatarUpdate.setMessageType(MessageTypeEnum.CONTACT_AVATAR_UPDATE.getType()); // 14
+    avatarUpdate.setContactId(groupInfo.getGroupId());
+    avatarUpdate.setContactType(UserContactTypeEnum.GROUP.getType());
+    messageHandler.sendMessage(avatarUpdate);
   }
 
   @Override
@@ -215,6 +223,8 @@ public class GroupInfoServiceImpl implements GroupInfoService {
     return groupInfoMapper.selectList(
       new LambdaQueryWrapper<GroupInfo>()
         .eq(GroupInfo::getGroupOwnerId, userId)
+        // 解散的群不再显示（源项目没过滤，会把已解散的群一起返回）
+        .eq(GroupInfo::getStatus, GroupStatusEnum.NORMAL.getStatus())
         .orderByDesc(GroupInfo::getCreateTime));
   }
 
